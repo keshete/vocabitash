@@ -1822,12 +1822,29 @@ function renderAdminCirclesList(){
     const c=circles[id]||{};
     return `<div class="panel" style="padding:10px 12px; margin:0">
       <div style="display:flex; justify-content:space-between; gap:8px; align-items:baseline">
-        <b>${escapeHtml(c.name||'Naamloze cirkel')}</b>
+        <b>${escapeHtml(c.name||'Naamloze cirkel')} <button type="button" class="circle-edit-name" data-id="${id}" style="background:none; border:none; color:var(--accent); font-size:.76rem; font-weight:400; cursor:pointer; padding:0; margin-left:2px">wijzigen</button></b>
         <button type="button" class="btn btn-ghost btn-sm circle-copy-link" data-id="${id}">🔗 Link</button>
       </div>
       <p class="muted" style="font-size:.8rem; margin:4px 0 0">Moderator: ${escapeHtml(c.moderatorEmail||'—')} <button type="button" class="circle-edit-mod" data-id="${id}" style="background:none; border:none; color:var(--accent); font-size:.8rem; cursor:pointer; padding:0; margin-left:4px">wijzigen</button></p>
     </div>`;
   }).join('');
+  list.querySelectorAll('.circle-edit-name').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.dataset.id;
+      const current=(circles[id]||{}).name||'';
+      const next=prompt('Nieuwe naam voor deze cirkel:', current);
+      if(next===null) return;
+      const name=next.trim();
+      if(!name) return;
+      try{
+        await db.doc('circles/'+id).update({name});
+        circles[id]={...(circles[id]||{}), name};
+        const mc=myCircles.find(c=>c.id===id); if(mc) mc.name=name;
+        applyActiveCircleUI();
+        toast('Cirkel hernoemd');
+      }catch(e){ toast('Hernoemen mislukt — probeer het opnieuw'); }
+    };
+  });
   list.querySelectorAll('.circle-copy-link').forEach(btn=>{
     btn.onclick=async ()=>{
       const link=location.origin+location.pathname+'#join-'+btn.dataset.id;
