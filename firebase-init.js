@@ -17,7 +17,8 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
-  getFirestore, doc, setDoc, updateDoc, deleteDoc, collection, addDoc, onSnapshot,
+  getFirestore, doc, setDoc, updateDoc, deleteDoc, getDoc, collection, addDoc, onSnapshot,
+  query, where, getDocs,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -26,13 +27,24 @@ const auth = getAuth(app);
 const fs = getFirestore(app);
 
 // ---- db shim: mirrors the Artifact `db` capability's doc()/collection() API ----
+// Extended (beyond the original Artifact shape) with .get() and .where() so
+// the app can do one-time reads and scoped queries — used by the circles
+// feature below. Everything else is unchanged from the original shim.
 function wrapDoc(path) {
   const ref = doc(fs, path);
   return {
-    set: (data) => setDoc(ref, data),
+    set: (data, opts) => setDoc(ref, data, opts || {}),
     update: (data) => updateDoc(ref, data),
     delete: () => deleteDoc(ref),
+    get: () => getDoc(ref),
     collection: (name) => wrapCollection(`${path}/${name}`),
+  };
+}
+function wrapQuery(ref) {
+  return {
+    where: (field, op, value) => wrapQuery(query(ref, where(field, op, value))),
+    onSnapshot: (onNext, onError) => onSnapshot(ref, onNext, onError || (() => {})),
+    get: () => getDocs(ref),
   };
 }
 function wrapCollection(path) {
@@ -41,6 +53,8 @@ function wrapCollection(path) {
     add: async (data) => ({ id: (await addDoc(ref, data)).id }),
     doc: (id) => wrapDoc(`${path}/${id}`),
     onSnapshot: (onNext, onError) => onSnapshot(ref, onNext, onError || (() => {})),
+    where: (field, op, value) => wrapQuery(query(ref, where(field, op, value))),
+    get: () => getDocs(ref),
   };
 }
 const dbShim = {
