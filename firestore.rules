@@ -53,6 +53,19 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || isCircleModerator(resource.data.circleId);
     }
 
+    // Suggestions: a proposed list (words embedded in the one doc) from
+    // someone who's a member of a circle but can't edit it directly. Any
+    // member can create one for their own circle, naming themselves as the
+    // suggester; only that circle's moderator (or the admin) can read or
+    // delete them — approving one means the moderator creates the real
+    // deck/words themselves (allowed above) and then deletes the suggestion.
+    match /suggestions/{suggestionId} {
+      allow create: if request.auth != null &&
+        isCircleMember(request.resource.data.circleId) &&
+        request.resource.data.suggestedByUid == request.auth.uid;
+      allow read, delete: if isAdmin() || isCircleModerator(resource.data.circleId);
+    }
+
     // Each person's own practice progress, accepted answers, mnemonics, and
     // circle memberships — private: only that signed-in person can read or
     // write their own.

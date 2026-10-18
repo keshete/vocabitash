@@ -17,7 +17,8 @@ let isAdmin=false;
 let circles={};          // circleId -> {name, moderatorEmail}
 let myCircles=[];        // [{id,name}] circles this account belongs to (admin: all of them)
 let activeCircleId=null; // which circle's lists are currently loaded into decks/words
-let unsubDecks=null, unsubWords=null;
+let unsubDecks=null, unsubWords=null, unsubSuggestions=null;
+let suggestions={}; // suggestionId -> {circleId,name,subject,langA,langB,words,suggestedByEmail,...} — only loaded for whoever moderates the active circle
 function canEditCircle(circleId){
   if(isAdmin) return true;
   if(!circleId) return false;
@@ -346,6 +347,7 @@ function langTileHtml(subj, onPick){
 }
 
 function renderHome(){
+  renderPendingSuggestions();
   const deckIds=Object.keys(decks);
   const bar=$('#subject-bar');
   const list=$('#deck-list'); list.innerHTML='';
@@ -559,10 +561,15 @@ function resetAddForm(){
   $('#section-suggestion').hidden=true; $('#section-suggestion').innerHTML='';
   $('#split-suggestion').hidden=true;
   $('#save-deck-split-btn').hidden=true;
-  $('#save-deck-btn').textContent='Lijst opslaan';
+  $('#save-deck-btn').textContent = canEditCircle(activeCircleId) ? 'Lijst opslaan' : 'Lijst voorstellen';
   populateLangOptions();
 }
 function setAddMode(mode){
+  const canEdit=canEditCircle(activeCircleId);
+  $('#add-view-title').textContent = canEdit ? 'Lijst toevoegen' : 'Lijst voorstellen';
+  $('#suggest-mode-note').hidden = canEdit;
+  $('#add-mode-toggle').hidden = !canEdit;
+  if(!canEdit) mode='photo';
   $('#add-mode-toggle').querySelectorAll('button').forEach(b=> b.classList.toggle('active', b.dataset.mode===mode));
   $('#add-mode-photo').hidden = mode!=='photo';
   $('#add-mode-import').hidden = mode!=='import';
@@ -687,13 +694,13 @@ function renderReviewRows(){
       wrap.appendChild(title);
       idxs.forEach(i=> wrap.appendChild(buildRowEl(reviewRows[i], i, langA, langB)));
     });
-    $('#save-deck-btn').textContent = `${groupCount} lijsten opslaan`;
+    $('#save-deck-btn').textContent = canEditCircle(activeCircleId) ? `${groupCount} lijsten opslaan` : `${groupCount} lijsten voorstellen`;
   } else {
     // ---- flat mode: today's single-list behavior ----
     const long = reviewRows.length>LONG_LIST_THRESHOLD;
     $('#split-suggestion').hidden = !long;
     $('#save-deck-split-btn').hidden = !long;
-    $('#save-deck-btn').textContent = 'Lijst opslaan';
+    $('#save-deck-btn').textContent = canEditCircle(activeCircleId) ? 'Lijst opslaan' : 'Lijst voorstellen';
     reviewRows.forEach((r,i)=> wrap.appendChild(buildRowEl(r, i, langA, langB)));
   }
 }
@@ -757,6 +764,20 @@ async function createDeckWithRows(name, subject, langA, langB, rows){
   }
   return deckRef;
 }
+// Someone who can't edit the active circle doesn't create a real list —
+// they send a single suggestion doc (with the words embedded) to the
+// circle's moderator, who can approve it from the home screen.
+async function suggestDeckWithRows(name, subject, langA, langB, rows){
+  const words=rows.map(r=>{
+    const w={a:r.a.trim(), b:r.b.trim()};
+    if(r.note && r.note.trim()) w.note=r.note.trim();
+    return w;
+  });
+  return db.collection('suggestions').add({
+    circleId:activeCircleId, name, subject, langA, langB, words,
+    suggestedByUid:uid, suggestedByEmail:myEmail, createdAt:iso(),
+  });
+}
 async function saveDeck(){
   if(!activeCircleId){ toast('Kies of maak eerst een cirkel in Instellingen'); return; }
   const name=$('#deck-name').value.trim() || 'Naamloze lijst';
@@ -764,14 +785,16 @@ async function saveDeck(){
   const [langA,langB]=currentLangPair();
   const rows=reviewRows.filter(r=>r.a.trim() && r.b.trim());
   if(!rows.length){ toast('Voeg minstens één compleet woordpaar toe'); return; }
+  const suggesting=!canEditCircle(activeCircleId);
   $('#save-deck-btn').disabled=true; $('#save-deck-split-btn').disabled=true;
   try{
-    await createDeckWithRows(name, subject, langA, langB, rows);
-    toast('Opgeslagen — klaar om te oefenen');
+    if(suggesting) await suggestDeckWithRows(name, subject, langA, langB, rows);
+    else await createDeckWithRows(name, subject, langA, langB, rows);
+    toast(suggesting ? 'Voorstel verstuurd — de moderator kan het goedkeuren' : 'Opgeslagen — klaar om te oefenen');
     resetAddForm();
     switchView('home');
   }catch(e){
-    toast('Opslaan mislukt — probeer het opnieuw');
+    toast(suggesting ? 'Voorstel versturen mislukt — probeer het opnieuw' : 'Opslaan mislukt — probeer het opnieuw');
   }finally{
     $('#save-deck-btn').disabled=false; $('#save-deck-split-btn').disabled=false;
   }
@@ -784,15 +807,17 @@ async function saveDeckSplit(){
   if(!rows.length){ toast('Voeg minstens één compleet woordpaar toe'); return; }
   const mid=Math.ceil(rows.length/2);
   const partA=rows.slice(0,mid), partB=rows.slice(mid);
+  const suggesting=!canEditCircle(activeCircleId);
+  const fn = suggesting ? suggestDeckWithRows : createDeckWithRows;
   $('#save-deck-btn').disabled=true; $('#save-deck-split-btn').disabled=true;
   try{
-    await createDeckWithRows(name+' — deel A', subject, langA, langB, partA);
-    await createDeckWithRows(name+' — deel B', subject, langA, langB, partB);
-    toast('Opgeslagen als twee lijsten — deel A en deel B');
+    await fn(name+' — deel A', subject, langA, langB, partA);
+    await fn(name+' — deel B', subject, langA, langB, partB);
+    toast(suggesting ? 'Voorstel verstuurd als twee lijsten' : 'Opgeslagen als twee lijsten — deel A en deel B');
     resetAddForm();
     switchView('home');
   }catch(e){
-    toast('Opslaan mislukt — probeer het opnieuw');
+    toast(suggesting ? 'Voorstel versturen mislukt — probeer het opnieuw' : 'Opslaan mislukt — probeer het opnieuw');
   }finally{
     $('#save-deck-btn').disabled=false; $('#save-deck-split-btn').disabled=false;
   }
@@ -808,14 +833,16 @@ async function saveDeckMultiSection(){
     rows: reviewRows.filter(r=>(r.section||'').trim()===key && r.a.trim() && r.b.trim()),
   })).filter(g=>g.rows.length);
   if(!groups.length){ toast('Voeg minstens één compleet woordpaar toe'); return; }
+  const suggesting=!canEditCircle(activeCircleId);
+  const fn = suggesting ? suggestDeckWithRows : createDeckWithRows;
   $('#save-deck-btn').disabled=true;
   try{
-    for(const g of groups){ await createDeckWithRows(g.name, subject, langA, langB, g.rows); }
-    toast(`Opgeslagen als ${groups.length} lijsten`);
+    for(const g of groups){ await fn(g.name, subject, langA, langB, g.rows); }
+    toast(suggesting ? `Voorstel verstuurd als ${groups.length} lijsten` : `Opgeslagen als ${groups.length} lijsten`);
     resetAddForm();
     switchView('home');
   }catch(e){
-    toast('Opslaan mislukt — probeer het opnieuw');
+    toast(suggesting ? 'Voorstel versturen mislukt — probeer het opnieuw' : 'Opslaan mislukt — probeer het opnieuw');
   }finally{
     $('#save-deck-btn').disabled=false;
   }
@@ -1506,7 +1533,7 @@ function abandonQuiz(){
 
 // ---------- nav ----------
 function switchView(name){
-  if(name==='add' && !canEditCircle(activeCircleId)) name='home';
+  if(name==='add' && !activeCircleId) name='home';
   currentView=name;
   $$('.view').forEach(v=>v.hidden=true);
   $('#view-'+name).hidden=false;
@@ -1697,7 +1724,8 @@ function wireStatic(){
 function subscribeCircleScoped(){
   if(unsubDecks){ unsubDecks(); unsubDecks=null; }
   if(unsubWords){ unsubWords(); unsubWords=null; }
-  decks={}; words={};
+  if(unsubSuggestions){ unsubSuggestions(); unsubSuggestions=null; }
+  decks={}; words={}; suggestions={};
   if(!activeCircleId){
     if(currentView==='home') renderHome();
     if(currentView==='practice') renderPracticeSetup();
@@ -1713,6 +1741,54 @@ function subscribeCircleScoped(){
     if(currentView==='home') renderHome();
     if(currentView==='practice') renderPracticeSetup();
   }, ()=>{});
+  // Suggestions are only readable by whoever moderates this circle (or the
+  // admin) — everyone else's query would just be rejected by the rules, so
+  // don't even try.
+  if(canEditCircle(activeCircleId)){
+    unsubSuggestions = db.collection('suggestions').where('circleId','==',activeCircleId).onSnapshot(snap=>{
+      suggestions={}; snap.docs.forEach(d=> suggestions[d.id]=d.data());
+      if(currentView==='home') renderPendingSuggestions();
+    }, ()=>{});
+  }
+}
+function renderPendingSuggestions(){
+  const panel=$('#pending-suggestions-panel');
+  const ids=Object.keys(suggestions);
+  if(!canEditCircle(activeCircleId) || !ids.length){ panel.hidden=true; return; }
+  panel.hidden=false;
+  const list=$('#pending-suggestions-list');
+  list.innerHTML=ids.map(id=>{
+    const s=suggestions[id];
+    return `<div class="panel" style="padding:10px 12px; margin:0">
+      <b>${escapeHtml(s.name||'Naamloze lijst')}</b>
+      <div class="muted" style="font-size:.8rem; margin:2px 0 8px">${escapeHtml(s.subject||'')} · ${(s.words||[]).length} woord${(s.words||[]).length===1?'':'en'} · voorgesteld door ${escapeHtml(s.suggestedByEmail||'iemand')}</div>
+      <div style="display:flex; gap:8px">
+        <button type="button" class="btn btn-primary btn-sm suggestion-approve" data-id="${id}" style="flex:1">Goedkeuren</button>
+        <button type="button" class="btn btn-ghost btn-sm suggestion-reject" data-id="${id}" style="flex:1">Afwijzen</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.suggestion-approve').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.dataset.id; const s=suggestions[id]; if(!s) return;
+      btn.disabled=true;
+      try{
+        await createDeckWithRows(s.name, s.subject, s.langA, s.langB, s.words||[]);
+        await db.doc('suggestions/'+id).delete();
+        toast('Voorstel goedgekeurd en toegevoegd');
+      }catch(e){ toast('Goedkeuren mislukt — probeer het opnieuw'); btn.disabled=false; }
+    };
+  });
+  list.querySelectorAll('.suggestion-reject').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.dataset.id;
+      btn.disabled=true;
+      try{
+        await db.doc('suggestions/'+id).delete();
+        toast('Voorstel afgewezen');
+      }catch(e){ toast('Afwijzen mislukt — probeer het opnieuw'); btn.disabled=false; }
+    };
+  });
 }
 function subscribeUserPrivateData(){
   progressCol().onSnapshot(snap=>{
@@ -1795,6 +1871,7 @@ async function maybeHandleJoinLink(){
 }
 function applyActiveCircleUI(){
   document.body.classList.toggle('can-edit-circle', canEditCircle(activeCircleId));
+  document.body.classList.toggle('has-active-circle', !!activeCircleId);
   const activeName=(circles[activeCircleId]||{}).name;
   $('#home-circle-label').textContent = activeName || 'jouw woordenlijsten';
   const sel=$('#circle-select'), field=$('#circle-switch-field'), single=$('#circle-single-label');
