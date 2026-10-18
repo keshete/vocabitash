@@ -3,10 +3,10 @@
 // This is NOT a secret (it's meant to be public in a web app) — access control
 // is enforced by firestore.rules, not by hiding these values.
 export const firebaseConfig = {
-  apiKey: "PASTE_ME",
-  authDomain: "PASTE_ME.firebaseapp.com",
-  projectId: "PASTE_ME",
-  storageBucket: "PASTE_ME.appspot.com",
-  messagingSenderId: "PASTE_ME",
-  appId: "PASTE_ME",
+  apiKey: "AIzaSyCggQR429Mie5rZk4GTmc9UQGLqMKzpk9c",
+  authDomain: "vocabitash.firebaseapp.com",
+  projectId: "vocabitash",
+  storageBucket: "vocabitash.firebasestorage.app",
+  messagingSenderId: "876256001955",
+  appId: "1:876256001955:web:b25eae30687e5364072416",
 };
