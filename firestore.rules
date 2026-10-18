@@ -2,18 +2,16 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Vocabulary lists and words: a shared pool. Anyone who is signed in
-    // (your daughter, her friends) can read AND add/edit/delete these —
-    // simplest possible setup for a small trusted group studying together.
-    // If that ever feels too open, change write to only your own account's
-    // email (see the commented line below) and redeploy.
+    // Vocabulary lists and words: a shared pool everyone who's signed in can
+    // read, but only the admin account can add/edit/delete — so no one else
+    // can accidentally (or deliberately) change or delete someone's list.
     match /decks/{deckId} {
-      allow read, write: if request.auth != null;
-      // allow write: if request.auth != null && request.auth.token.email == "keshet85@gmail.com";
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == "keshet85@gmail.com";
     }
     match /words/{wordId} {
-      allow read, write: if request.auth != null;
-      // allow write: if request.auth != null && request.auth.token.email == "keshet85@gmail.com";
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == "keshet85@gmail.com";
     }
 
     // Each person's own practice progress, accepted answers and mnemonics —

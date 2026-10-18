@@ -272,6 +272,9 @@ input[type=text]:focus, select:focus, button:focus-visible{outline:2px solid var
 .tab .ic{font-size:1.25rem; font-family:var(--font-display)}
 .tab.active{color:var(--accent)}
 .tab.active .ic{background:var(--surface-2); border-radius:9px; padding:1px 10px}
+/* Only the admin account can add/edit shared lists — see ADMIN_EMAIL in app.js */
+.tab[data-view="add"]{display:none}
+body.is-admin .tab[data-view="add"]{display:flex}
 
 /* ---- quiz ---- */
 .quiz-wrap{position:fixed; inset:0; background:var(--bg); z-index:30; display:flex; flex-direction:column;

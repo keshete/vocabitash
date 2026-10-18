@@ -5,6 +5,12 @@ const $$ = s=>Array.from(document.querySelectorAll(s));
 
 // ---------- state ----------
 let db=null, sampleFn=null, uid=null, downloadsCap=null;
+// Only this account may add/edit/delete the shared lists — everyone else can
+// read and practice them, but can't change them (so no one accidentally, or
+// not-so-accidentally, breaks a list someone else is using). Matches
+// firestore.rules, which enforces the same thing server-side.
+const ADMIN_EMAIL='keshet85@gmail.com';
+let isAdmin=false;
 let decks={}, words={}, progress={}, acceptedAnswers={}, mnemonics={};
 let currentView='home';
 let shotFiles=[];
@@ -257,41 +263,47 @@ function deckCardHtml(id){
         <div class="deck-langs">${escapeHtml(trLang(d.langA))} ⇄ ${escapeHtml(trLang(d.langB))} · ${ws.length} woord${ws.length===1?'':'en'}</div>
       </div>
       <div class="deck-head-actions">
-        <button class="deck-edit" data-id="${id}" title="Lijst bewerken">✏️</button>
-        <button class="deck-del" data-id="${id}" title="Lijst verwijderen">🗑</button>
+        ${isAdmin? `<button class="deck-edit" data-id="${id}" title="Lijst bewerken">✏️</button>
+        <button class="deck-del" data-id="${id}" title="Lijst verwijderen">🗑</button>` : ''}
       </div>
     </div>
     <div class="deck-meta">
       <div class="bar"><i style="width:${pct}%"></i></div>
       <span class="chip">${m}/${ws.length} geleerd</span>
       ${dueN? `<span class="chip due">${dueN} te doen</span>`:''}
-      <button type="button" class="chip group-chip" data-id="${id}">${(d.group||'').trim() ? '📁 '+escapeHtml(d.group.trim()) : '+ groep'}</button>
-      <select class="status-select" data-id="${id}">
-        <option value="active" ${status==='active'?'selected':''}>Bezig</option>
-        <option value="maintain" ${status==='maintain'?'selected':''}>Onderhouden (minder vaak)</option>
-        <option value="archived" ${status==='archived'?'selected':''}>Gearchiveerd</option>
-      </select>
+      ${isAdmin
+        ? `<button type="button" class="chip group-chip" data-id="${id}">${(d.group||'').trim() ? '📁 '+escapeHtml(d.group.trim()) : '+ groep'}</button>`
+        : ((d.group||'').trim() ? `<span class="chip">📁 ${escapeHtml(d.group.trim())}</span>` : '')}
+      ${isAdmin
+        ? `<select class="status-select" data-id="${id}">
+            <option value="active" ${status==='active'?'selected':''}>Bezig</option>
+            <option value="maintain" ${status==='maintain'?'selected':''}>Onderhouden (minder vaak)</option>
+            <option value="archived" ${status==='archived'?'selected':''}>Gearchiveerd</option>
+          </select>`
+        : ''}
     </div>`;
-  const groupChip=card.querySelector('.group-chip');
-  groupChip.onclick=(e)=>{ e.stopPropagation(); openGroupEditor(id, groupChip); };
-  const editBtn=card.querySelector('.deck-edit');
-  editBtn.onclick=(e)=>{ e.stopPropagation(); openEditDeck(id); };
-  const delBtn=card.querySelector('.deck-del');
-  delBtn.onclick=(e)=>{
-    e.stopPropagation();
-    if(delBtn.dataset.armed==='1'){ deleteDeck(id, d.name); return; }
-    delBtn.dataset.armed='1'; delBtn.textContent='✓ zeker?'; delBtn.style.color='var(--wrong)';
-    clearTimeout(delBtn._t);
-    delBtn._t=setTimeout(()=>{ delBtn.dataset.armed='0'; delBtn.textContent='🗑'; delBtn.style.color=''; }, 2500);
-  };
-  const statusSel=card.querySelector('.status-select');
-  statusSel.onclick=(e)=> e.stopPropagation();
-  statusSel.onchange=async (e)=>{
-    e.stopPropagation();
-    const newStatus=statusSel.value;
-    try{ await db.doc('decks/'+id).update({status:newStatus}); }
-    catch(err){ toast('Bijwerken mislukt — probeer het opnieuw'); }
-  };
+  if(isAdmin){
+    const groupChip=card.querySelector('.group-chip');
+    groupChip.onclick=(e)=>{ e.stopPropagation(); openGroupEditor(id, groupChip); };
+    const editBtn=card.querySelector('.deck-edit');
+    editBtn.onclick=(e)=>{ e.stopPropagation(); openEditDeck(id); };
+    const delBtn=card.querySelector('.deck-del');
+    delBtn.onclick=(e)=>{
+      e.stopPropagation();
+      if(delBtn.dataset.armed==='1'){ deleteDeck(id, d.name); return; }
+      delBtn.dataset.armed='1'; delBtn.textContent='✓ zeker?'; delBtn.style.color='var(--wrong)';
+      clearTimeout(delBtn._t);
+      delBtn._t=setTimeout(()=>{ delBtn.dataset.armed='0'; delBtn.textContent='🗑'; delBtn.style.color=''; }, 2500);
+    };
+    const statusSel=card.querySelector('.status-select');
+    statusSel.onclick=(e)=> e.stopPropagation();
+    statusSel.onchange=async (e)=>{
+      e.stopPropagation();
+      const newStatus=statusSel.value;
+      try{ await db.doc('decks/'+id).update({status:newStatus}); }
+      catch(err){ toast('Bijwerken mislukt — probeer het opnieuw'); }
+    };
+  }
   if(!archived){
     card.onclick=()=>{
       setPracticeSubject((d.subject||'').trim()||'Overig');
@@ -1473,6 +1485,7 @@ function abandonQuiz(){
 
 // ---------- nav ----------
 function switchView(name){
+  if(name==='add' && !isAdmin) name='home';
   currentView=name;
   $$('.view').forEach(v=>v.hidden=true);
   $('#view-'+name).hidden=false;
@@ -1638,6 +1651,8 @@ function showSignedOut(){
 }
 async function startAppForUser(user){
   uid = user.uid;
+  isAdmin = (user.email||'').toLowerCase() === ADMIN_EMAIL;
+  document.body.classList.toggle('is-admin', isAdmin);
   db = shims.db;
   sampleFn = shims.sample;
   downloadsCap = shims.downloads;
