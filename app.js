@@ -1795,6 +1795,8 @@ async function maybeHandleJoinLink(){
 }
 function applyActiveCircleUI(){
   document.body.classList.toggle('can-edit-circle', canEditCircle(activeCircleId));
+  const activeName=(circles[activeCircleId]||{}).name;
+  $('#home-circle-label').textContent = activeName || 'jouw woordenlijsten';
   const sel=$('#circle-select'), field=$('#circle-switch-field'), single=$('#circle-single-label');
   if(myCircles.length>1){
     field.hidden=false; single.hidden=true;
