@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>VocabiTash</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap">
+<style>
+/* Minimal page reset — in the original Claude Artifact this was injected
+   automatically by the platform; here it has to be explicit. */
+html{color-scheme:light}
+body{margin:0; font-size:14px}
+img{max-width:100%}
+[hidden]{display:none!important}
+:root{
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+/* ===== Design plan =====
+   Layout: single-column mobile app shell — fixed-ish header, scrolling
+   content, fixed bottom tab bar; quiz/summary are full-screen takeovers
+   with no tab bar.
+   Color: ultraviolet as the working accent with an electric-lime pop for
+   highlights and "tape" accents — bold, high-energy, deliberately not pink.
+   Cards get a chunky rounded shape and a stuck-on washi-tape corner instead
+   of a sober ruled-paper texture; buttons get a tactile press-down shadow.
+   Type: Fredoka (bouncy rounded display, headings + the big quiz word) +
+   Manrope (clean UI/body) + Space Mono (a techy accent on key numbers). */
+:root{
+  --font-display:"Fredoka",system-ui,sans-serif;
+  --font-body:"Manrope",-apple-system,BlinkMacSystemFont,sans-serif;
+  --font-mono:"Space Mono","SFMono-Regular",Menlo,monospace;
+  --bg:#f6f4ec; --surface:#ffffff; --surface-2:#e9e5d4;
+  --fg:#1c1f14; --fg-muted:#6a6b55;
+  --accent:#5c7a29; --accent-deep:#425a1b; --accent-ink:#ffffff; --accent-bg:#e6ecd6;
+  --pop:#eab22e; --pop-ink:#2b2008;
+  --line:#ddd8c2; --rail:#eab22e;
+  --wrong:#e2583c; --wrong-bg:#fbe3dc;
+  --right:#0d9488; --right-bg:#d9f2ee;
+  --logo-a:#1f8ecd; --logo-b:#4f6df5;
+  --shadow: 0 1px 2px rgba(25,28,10,.07), 0 8px 22px rgba(25,28,10,.1);
+  --radius: 20px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15170f; --surface:#1e2116; --surface-2:#272b1b;
+    --fg:#f1efe2; --fg-muted:#aaa98f;
+    --accent:#9bc155; --accent-deep:#6f8c37; --accent-ink:#152008; --accent-bg:#2b3420;
+    --pop:#f4c84c; --pop-ink:#241a04;
+    --line:#333624; --rail:#f4c84c;
+    --wrong:#ff8d6f; --wrong-bg:#3a2419;
+    --right:#2dd4bf; --right-bg:#113330;
+    --logo-a:#4fb0eb; --logo-b:#8aa0ff;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 10px 26px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15170f; --surface:#1e2116; --surface-2:#272b1b;
+  --fg:#f1efe2; --fg-muted:#aaa98f;
+  --accent:#9bc155; --accent-deep:#6f8c37; --accent-ink:#152008; --accent-bg:#2b3420;
+  --pop:#f4c84c; --pop-ink:#241a04;
+  --line:#333624; --rail:#f4c84c;
+  --wrong:#ff8d6f; --wrong-bg:#3a2419;
+  --right:#2dd4bf; --right-bg:#113330;
+  --logo-a:#4fb0eb; --logo-b:#8aa0ff;
+  --shadow: 0 1px 2px rgba(0,0,0,.35), 0 10px 26px rgba(0,0,0,.4);
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:var(--font-body);
+  padding-left:max(16px, env(safe-area-inset-left,0px));
+  padding-right:max(16px, env(safe-area-inset-right,0px));
+  display:flex; flex-direction:column;
+}
+body::before{
+  content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top,0px);
+  z-index:10; background:var(--bg);
+}
+h1,h2,h3{font-family:var(--font-display); font-weight:600; text-wrap:balance; margin:0}
+.mono{font-family:var(--font-mono)}
+.muted{color:var(--fg-muted)}
+button{font-family:inherit}
+#app{max-width:520px; margin:0 auto; width:100%; flex:1; display:flex; flex-direction:column; min-height:0}
+.view{display:flex; flex-direction:column; gap:18px; padding:18px 0 100px; flex:1}
+[hidden]{display:none!important}
+
+/* ---- top header ---- */
+.topbar{
+  padding-top:14px; padding-bottom:10px; display:flex; align-items:baseline;
+  justify-content:space-between; gap:10px;
+}
+.topbar h1{font-size:1.5rem}
+.topbar .sub{font-size:.8rem}
+
+/* ---- wordmark (logo) ---- */
+.wordmark{
+  background:linear-gradient(100deg, var(--logo-a), var(--logo-b));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.wordmark-row{display:inline-flex; align-items:center; gap:8px}
+.cat-badge{flex:none; display:block}
+.cat-badge rect{filter:drop-shadow(0 2px 3px rgba(20,30,60,.18))}
+
+/* ---- stat tiles ---- */
+.stats{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
+.stat{
+  background:var(--surface); border-radius:var(--radius); padding:12px 10px;
+  box-shadow:var(--shadow); text-align:center;
+}
+.stat .n{font-family:var(--font-display); font-size:1.6rem; font-variant-numeric:tabular-nums; font-weight:600}
+.stat .l{font-size:.68rem; letter-spacing:.04em; text-transform:uppercase; color:var(--fg-muted); margin-top:2px}
+
+/* ---- deck index card ---- */
+.deck{
+  position:relative; background:var(--surface); border-radius:var(--radius);
+  box-shadow:var(--shadow); padding:18px 16px 14px; overflow:visible;
+  border:1.5px solid var(--line);
+}
+.deck::before{
+  content:""; position:absolute; top:-7px; left:20px; width:44px; height:16px;
+  background:var(--rail); opacity:.95; transform:rotate(-4deg); border-radius:3px;
+  box-shadow:0 1px 3px rgba(0,0,0,.18);
+}
+.deck-head{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; position:relative}
+.deck-head h3{font-size:1.08rem}
+.deck-langs{font-size:.74rem; color:var(--fg-muted); margin-top:2px}
+.deck-del{background:none; border:none; color:var(--fg-muted); font-size:1.1rem; line-height:1; cursor:pointer; padding:4px}
+.deck-edit{background:none; border:none; color:var(--fg-muted); font-size:1rem; line-height:1; cursor:pointer; padding:4px}
+.deck-head-actions{display:flex; gap:2px; flex:none}
+.deck-meta{display:flex; align-items:center; gap:10px; margin-top:10px; position:relative; flex-wrap:wrap}
+.deck.archived{opacity:.6}
+.deck.archived::before{background:var(--fg-muted)}
+.status-select{
+  font-size:.7rem; padding:3px 7px; border-radius:99px; border:1px solid var(--line);
+  background:var(--surface-2); color:var(--fg-muted); font-family:inherit; font-weight:600;
+}
+.archived-toggle{
+  background:none; border:none; color:var(--fg-muted); font-size:.8rem; text-decoration:underline;
+  cursor:pointer; padding:6px 2px; align-self:flex-start;
+}
+.chip{
+  font-size:.7rem; padding:3px 9px; border-radius:99px; background:var(--surface-2);
+  color:var(--fg-muted); white-space:nowrap; border:none; font-family:inherit;
+}
+button.chip{cursor:pointer}
+.chip.due{background:var(--accent); color:var(--accent-ink)}
+.filter-chip{border:1px solid var(--line)}
+.filter-chip.active{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600}
+.group-edit-select, .group-edit-input{font-size:.78rem; padding:4px 8px; border-radius:99px; max-width:220px}
+.deck-group{display:flex; flex-direction:column; gap:16px; margin:4px 0 2px}
+.deck-group-head{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap}
+.deck-group-head h4{font-family:var(--font-display); font-size:.95rem; font-weight:600; color:var(--fg); margin:0}
+.bar{flex:1; min-width:60px; height:6px; border-radius:99px; background:var(--surface-2); overflow:hidden}
+.bar>i{display:block; height:100%; background:var(--accent)}
+
+.empty{
+  text-align:center; padding:40px 20px; color:var(--fg-muted); display:flex; flex-direction:column;
+  gap:10px; align-items:center;
+}
+.empty .big{font-family:var(--font-display); font-size:2rem; color:var(--fg)}
+
+/* ---- subject switcher ---- */
+.subjectbar{display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; margin:-2px 0 2px}
+.schip{
+  flex:none; padding:7px 14px; border-radius:99px; border:1px solid var(--line); background:var(--surface);
+  color:var(--fg-muted); font-size:.82rem; font-weight:600; cursor:pointer; white-space:nowrap;
+}
+.schip.active{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+.subject-section{display:flex; flex-direction:column; gap:10px}
+.subject-head{display:flex; align-items:baseline; justify-content:space-between; padding:0 2px}
+.subject-head h3{font-size:.95rem; font-family:var(--font-body); font-weight:800}
+.back-chip{
+  flex:none; padding:7px 14px 7px 10px; border-radius:99px; border:1px solid var(--line); background:var(--surface);
+  color:var(--fg); font-size:.82rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;
+}
+
+/* ---- language picker grid ---- */
+.lang-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+.lang-tile{
+  position:relative; background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow);
+  border:1.5px solid var(--line); padding:18px 14px; text-align:left; cursor:pointer; font-family:inherit;
+  display:flex; flex-direction:column; gap:6px; transition:transform .08s ease;
+}
+.lang-tile:active{transform:translateY(2px)}
+.lang-tile::before{
+  content:""; position:absolute; top:-7px; left:16px; width:36px; height:14px;
+  background:var(--rail); border-radius:3px; transform:rotate(-3deg); opacity:.9;
+}
+.lang-tile .lt-name{font-family:var(--font-display); font-size:1.15rem; font-weight:600; color:var(--fg)}
+.lang-tile .lt-meta{font-size:.78rem; color:var(--fg-muted)}
+.lang-tile .lt-due{color:var(--accent-deep); font-weight:700}
+
+/* ---- buttons ---- */
+.btn{
+  appearance:none; border:none; border-radius:14px; padding:13px 18px; font-size:.95rem;
+  font-family:var(--font-body); font-weight:700; cursor:pointer; display:inline-flex; align-items:center;
+  justify-content:center; gap:8px; transition:transform .08s ease, box-shadow .08s ease;
+}
+.btn-primary{background:var(--accent); color:var(--accent-ink); box-shadow:0 3px 0 var(--accent-deep)}
+.btn-primary:active{transform:translateY(3px); box-shadow:0 0 0 var(--accent-deep)}
+.btn-ghost{background:var(--surface-2); color:var(--fg); box-shadow:0 2px 0 var(--line)}
+.btn-ghost:active{transform:translateY(2px); box-shadow:0 0 0 var(--line)}
+.btn-block{width:100%}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+.btn-sm{padding:8px 13px; font-size:.82rem; border-radius:9px}
+
+/* ---- form controls ---- */
+label{font-size:.78rem; font-weight:600; color:var(--fg-muted); display:block; margin-bottom:5px}
+input[type=text], select{
+  width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--line);
+  background:var(--surface); color:var(--fg); font-size:.95rem; font-family:inherit;
+}
+input[type=text]:focus, select:focus, button:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.field{margin-bottom:14px}
+.seg{display:flex; border:1px solid var(--line); border-radius:10px; overflow:hidden}
+.seg button{flex:1; padding:10px 6px; background:var(--surface); border:none; font-size:.8rem; color:var(--fg-muted); cursor:pointer; border-right:1px solid var(--line)}
+.seg button:last-child{border-right:none}
+.seg button.active{background:var(--accent); color:var(--accent-ink); font-weight:600}
+.check-row{display:flex; flex-wrap:wrap; gap:8px}
+.check{
+  display:flex; align-items:center; gap:7px; padding:9px 13px; border-radius:10px;
+  border:1px solid var(--line); font-size:.86rem; cursor:pointer; user-select:none;
+}
+.check.on{border-color:var(--accent); background:var(--accent-bg)}
+.check input{accent-color:var(--accent)}
+.check.disabled{opacity:.4; cursor:not-allowed}
+
+/* ---- card panel ---- */
+.panel{background:var(--surface); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px}
+.panel h3{font-size:1rem; margin-bottom:12px}
+
+/* ---- photo add ---- */
+.shot-wrap{
+  border:1.5px dashed var(--line); border-radius:var(--radius); padding:22px 16px; text-align:center;
+  color:var(--fg-muted); cursor:pointer; background:var(--surface);
+}
+.shot-wrap img{max-width:100%; border-radius:10px; display:block; margin:0 auto 10px}
+.shot-thumbs{display:flex; flex-wrap:wrap; gap:8px; justify-content:center}
+.shot-thumb{position:relative; width:72px; height:72px; border-radius:10px; overflow:hidden; flex:none; box-shadow:var(--shadow)}
+.shot-thumb img{width:100%; height:100%; object-fit:cover; display:block; margin:0; border-radius:0}
+.shot-thumb-del{
+  position:absolute; top:3px; right:3px; width:20px; height:20px; border-radius:50%;
+  background:rgba(20,20,10,.65); color:#fff; border:none; font-size:.7rem; line-height:1;
+  display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
+}
+.row-edit-wrap{margin-bottom:8px}
+.row-edit{display:flex; gap:8px; align-items:flex-start}
+.section-group{margin:18px 0 10px; padding-top:14px; border-top:1px dashed var(--line)}
+.section-group:first-of-type{margin-top:0; padding-top:0; border-top:none}
+.section-group label{margin-bottom:4px}
+.row-edit input{flex:1}
+.row-edit .del{background:none;border:none;color:var(--wrong);font-size:1.1rem;cursor:pointer;padding:9px 4px}
+.dup-chip{background:var(--wrong-bg); color:var(--wrong); margin-top:5px; white-space:normal}
+
+/* ---- tabbar ---- */
+.tabbar{
+  position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center;
+  background:var(--surface); border-top:1px solid var(--line); z-index:20;
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+.tabbar-inner{max-width:520px; width:100%; display:flex; padding:0 max(16px, env(safe-area-inset-left,0px)) 0 max(16px, env(safe-area-inset-right,0px))}
+.tab{
+  flex:1; background:none; border:none; padding:10px 4px 8px; display:flex; flex-direction:column;
+  align-items:center; gap:3px; color:var(--fg-muted); cursor:pointer; font-size:.68rem; font-weight:600;
+  letter-spacing:.02em;
+}
+.tab .ic{font-size:1.25rem; font-family:var(--font-display)}
+.tab.active{color:var(--accent)}
+.tab.active .ic{background:var(--surface-2); border-radius:9px; padding:1px 10px}
+
+/* ---- quiz ---- */
+.quiz-wrap{position:fixed; inset:0; background:var(--bg); z-index:30; display:flex; flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-left:max(16px, env(safe-area-inset-left,0px)); padding-right:max(16px, env(safe-area-inset-right,0px));
+  padding-bottom:max(16px, env(safe-area-inset-bottom,0px));
+}
+.quiz-head{display:flex; align-items:center; gap:12px; padding:14px 0 10px; max-width:520px; margin:0 auto; width:100%}
+.quiz-progress{flex:1; height:6px; border-radius:99px; background:var(--surface-2); overflow:hidden}
+.quiz-progress>i{display:block; height:100%; background:var(--accent)}
+.quiz-close{background:none; border:none; font-size:1.3rem; color:var(--fg-muted); cursor:pointer; padding:4px 6px}
+.quiz-body{flex:1; max-width:520px; margin:0 auto; width:100%; display:flex; flex-direction:column; gap:18px; overflow-y:auto; padding-bottom:12px}
+.leave-confirm{display:flex; gap:8px; align-items:center; background:var(--wrong-bg); border-radius:10px; padding:8px 10px; font-size:.82rem}
+.prompt-card{
+  background:var(--surface); border-radius:24px; border:1.5px solid var(--line); box-shadow:var(--shadow);
+  padding:30px 22px; text-align:center;
+  display:flex; flex-direction:column; gap:10px; min-height:150px; justify-content:center;
+}
+.prompt-lang{font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--fg-muted); font-weight:700}
+.prompt-word{font-family:var(--font-display); font-size:1.9rem; font-weight:600; line-height:1.25; word-wrap:break-word}
+.prompt-note{font-size:.8rem; color:var(--fg-muted)}
+.dots{display:flex; gap:4px; justify-content:center; margin-top:4px}
+.dot{width:6px; height:6px; border-radius:50%; background:var(--surface-2)}
+.dot.on{background:var(--accent)}
+
+.answer-type{display:flex; gap:8px}
+.answer-type input{flex:1; font-size:1.05rem; padding:13px 14px}
+.choices{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.choice-btn{
+  background:var(--surface); border:2px solid var(--line); border-radius:16px; padding:14px 10px;
+  font-size:.92rem; font-weight:600; cursor:pointer; min-height:56px; text-align:center;
+}
+.choice-btn.correct{border-color:var(--right); background:var(--right-bg)}
+.choice-btn.wrong{border-color:var(--wrong); background:var(--wrong-bg)}
+.feedback{border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:6px}
+.feedback.good{background:var(--right-bg); color:var(--right)}
+.feedback.bad{background:var(--wrong-bg); color:var(--wrong)}
+.feedback .ans{color:var(--fg); font-size:.9rem}
+.feedback .fnote{font-size:.78rem; opacity:.85}
+
+.mnemo-zone{display:flex; flex-direction:column; gap:8px; margin-top:8px}
+.mnemo-hint{background:var(--surface-2); color:var(--fg); border-radius:12px; padding:12px; font-size:.88rem; line-height:1.4; border:1px dashed var(--line)}
+.mnemo-zone textarea{width:100%; box-sizing:border-box; border-radius:12px; border:1px solid var(--line); background:var(--surface); color:var(--fg); padding:10px 12px; font:inherit; resize:vertical}
+.mnemo-edit-actions{display:flex; gap:8px}
+.mnemo-edit-actions .btn{flex:1}
+
+/* ---- summary ---- */
+.summary-wrap{position:fixed; inset:0; background:var(--bg); z-index:30; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; padding:20px;
+  padding-top:max(20px, env(safe-area-inset-top,0px));
+}
+.summary-wrap .stamp{font-family:var(--font-display); font-size:2.2rem; text-align:center}
+.summary-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; width:100%; max-width:420px}
+.retry-list{max-width:420px; width:100%; background:var(--surface); border-radius:var(--radius); padding:14px; box-shadow:var(--shadow); max-height:260px; overflow-y:auto}
+.retry-list h4{font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:var(--fg-muted); font-weight:700; margin:0 0 8px}
+.retry-list .ri{display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:.88rem; padding:7px 0; border-bottom:1px solid var(--line)}
+.retry-list .ri:last-child{border-bottom:none}
+.retry-list .ri .w{display:flex; flex-direction:column; min-width:0}
+.retry-list .ri .w b{font-family:var(--font-mono); font-weight:700}
+.retry-list .ri .w span{font-size:.76rem; color:var(--fg-muted)}
+.retry-list .ri .miss{flex:none; font-size:.72rem; font-weight:700; color:var(--wrong); background:var(--wrong-bg); padding:3px 8px; border-radius:99px}
+.ring-wrap{position:relative; width:128px; height:128px}
+.ring-wrap svg{width:100%; height:100%; transform:rotate(-90deg)}
+.ring-pct{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-size:1.7rem; font-weight:600}
+
+/* ---- toast ---- */
+#toast{
+  position:fixed; left:50%; bottom:90px; transform:translateX(-50%) translateY(10px); opacity:0;
+  background:var(--fg); color:var(--bg); padding:10px 16px; border-radius:10px; font-size:.84rem;
+  max-width:88%; text-align:center; z-index:50; transition:opacity .25s, transform .25s; pointer-events:none;
+}
+#toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+
+#nodb{padding:60px 20px; text-align:center; display:flex; flex-direction:column; gap:12px; align-items:center}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="nodb" hidden>
+    <div class="wordmark-row" style="font-family:var(--font-display);font-size:1.6rem">
+      <svg class="cat-badge" viewBox="0 0 48 48" width="30" height="30" aria-hidden="true">
+        <defs><linearGradient id="catGradA" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="var(--logo-a)"/><stop offset="1" stop-color="var(--logo-b)"/>
+        </linearGradient></defs>
+        <rect x="1" y="1" width="46" height="46" rx="14" fill="url(#catGradA)"/>
+        <path d="M14 16 L10 7 L19 13 Z" fill="#fff"/>
+        <path d="M34 16 L38 7 L29 13 Z" fill="#fff"/>
+        <circle cx="24" cy="25" r="13" fill="#fff"/>
+        <circle cx="19" cy="24" r="1.6" fill="var(--logo-b)"/>
+        <circle cx="29" cy="24" r="1.6" fill="var(--logo-b)"/>
+        <path d="M24 27 L22.5 29 L25.5 29 Z" fill="var(--logo-b)"/>
+        <path d="M22 29.5 Q24 31.5 26 29.5" stroke="var(--logo-b)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+        <line x1="6" y1="26" x2="15" y2="25" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>
+        <line x1="6" y1="30" x2="15" y2="29.5" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>
+        <line x1="42" y1="26" x2="33" y2="25" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>
+        <line x1="42" y1="30" x2="33" y2="29.5" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">VocabiTash</span>
+    </div>
+    <p class="muted">Log in om je eigen woordenlijsten en voortgang te zien.</p>
+    <button type="button" class="btn btn-primary" id="google-signin-btn" style="display:inline-flex; align-items:center; gap:10px">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path fill="#fff" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#fff" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.93v2.33A9 9 0 0 0 9 18z"/><path fill="#fff" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.93A9 9 0 0 0 0 9c0 1.45.35 2.83.93 4.03l3.02-2.33z"/><path fill="#fff" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .93 4.97L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+      Inloggen met Google
+    </button>
+  </div>
+
+  <div id="main" hidden>
+    <!-- HOME -->
+    <section class="view" id="view-home">
+      <div class="topbar">
+        <h1 class="wordmark-row">
+          <svg class="cat-badge" viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
+            <defs><linearGradient id="catGradB" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="var(--logo-a)"/><stop offset="1" stop-color="var(--logo-b)"/>
+            </linearGradient></defs>
+            <rect x="1" y="1" width="46" height="46" rx="14" fill="url(#catGradB)"/>
+            <path d="M14 16 L10 7 L19 13 Z" fill="#fff"/>
+            <path d="M34 16 L38 7 L29 13 Z" fill="#fff"/>
+            <circle cx="24" cy="25" r="13" fill="#fff"/>
+            <circle cx="19" cy="24" r="1.6" fill="var(--logo-b)"/>
+            <circle cx="29" cy="24" r="1.6" fill="var(--logo-b)"/>
+            <path d="M24 27 L22.5 29 L25.5 29 Z" fill="var(--logo-b)"/>
+            <path d="M22 29.5 Q24 31.5 26 29.5" stroke="var(--logo-b)" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+            <line x1="6" y1="26" x2="15" y2="25" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>
+            <line x1="6" y1="30" x2="15" y2="29.5" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>
+            <line x1="42" y1="26" x2="33" y2="25" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>
+            <line x1="42" y1="30" x2="33" y2="29.5" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+          <span class="wordmark">VocabiTash</span> ✨
+        </h1>
+        <div class="sub muted">jouw woordenlijsten</div>
+      </div>
+      <div class="subjectbar" id="subject-bar" hidden></div>
+      <div class="stats" id="home-stats" hidden>
+        <div class="stat"><div class="n" id="st-total">0</div><div class="l">woorden</div></div>
+        <div class="stat"><div class="n" id="st-mastered">0</div><div class="l">geleerd</div></div>
+        <div class="stat"><div class="n" id="st-due">0</div><div class="l">nu te doen</div></div>
+      </div>
+      <div id="deck-list" style="display:flex; flex-direction:column; gap:16px"></div>
+    </section>
+
+    <!-- ADD -->
+    <section class="view" id="view-add" hidden>
+      <div class="topbar"><h1>Lijst toevoegen</h1></div>
+      <div class="seg" id="add-mode-toggle" style="margin-bottom:14px">
+        <button type="button" data-mode="photo" class="active">📷 Van foto</button>
+        <button type="button" data-mode="import">📂 Importeren</button>
+      </div>
+
+      <div id="add-mode-import" hidden>
+        <div class="panel">
+          <p class="muted" style="font-size:.82rem; margin-top:0">Kies een VocabiTash-bestand (.json) dat iemand je gestuurd heeft. De lijsten worden toegevoegd aan jouw eigen lijsten — je bestaande lijsten blijven onveranderd.</p>
+          <button type="button" class="btn btn-ghost btn-block" id="import-choose-btn">📂 Bestand kiezen</button>
+          <input type="file" id="import-file-input" accept=".json,application/json" hidden>
+          <p class="muted" id="import-status" style="font-size:.8rem; margin-top:8px"></p>
+          <div id="import-preview" style="font-size:.86rem; margin-top:4px" hidden></div>
+          <button class="btn btn-primary btn-block" id="import-confirm-btn" style="margin-top:10px" hidden>Ja, importeren</button>
+        </div>
+      </div>
+
+      <div id="add-mode-photo">
+      <div class="panel">
+        <div class="field">
+          <label>Welke taal leer je?</label>
+          <select id="learn-lang-select">
+            <option value="">Kies een taal...</option>
+            <option value="__new__">+ Nieuwe taal toevoegen…</option>
+          </select>
+          <input type="text" id="learn-lang-new" placeholder="Naam van de nieuwe taal" hidden style="margin-top:8px">
+          <p class="muted" style="font-size:.76rem; margin-top:6px">Dit wordt meteen je vak — zo staan al je lijsten voor deze taal straks bij elkaar.</p>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label class="muted" style="font-weight:600">Vertaald vanuit/naar (meestal Nederlands)</label>
+          <input type="text" id="other-lang-input" list="lang-presets" value="Nederlands">
+          <datalist id="lang-presets"></datalist>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label>Foto's van de woordenlijst</label>
+        <div class="shot-wrap" id="shot-wrap">
+          <div id="shot-empty">📷<br><span style="font-size:.85rem">Maak een foto, of kies er een of meer uit je foto's</span></div>
+          <div class="shot-thumbs" id="shot-thumbs" hidden></div>
+        </div>
+        <div class="check-row" style="margin-top:10px">
+          <button type="button" class="btn btn-ghost" id="shot-camera-btn">📷 Foto maken</button>
+          <button type="button" class="btn btn-ghost" id="shot-library-btn">🖼️ Kies uit foto's</button>
+        </div>
+        <p class="muted" style="font-size:.76rem; margin-top:6px">Horen er meerdere foto's bij deze lijst (bijv. een paar pagina's)? Voeg er tot 6 toe — ze worden samen als één lijst gelezen.</p>
+        <input type="file" id="shot-input-camera" accept="image/*" capture="environment" hidden>
+        <input type="file" id="shot-input-library" accept="image/*" multiple hidden>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label>Naam van de lijst</label>
+          <input type="text" id="deck-name" placeholder="bijv. Hoofdstuk 4 — dieren">
+        </div>
+        <button class="btn btn-primary btn-block" id="extract-btn" disabled>Foto's lezen</button>
+        <p class="muted" id="extract-status" style="font-size:.8rem; margin-top:8px"></p>
+      </div>
+
+      <div class="panel" id="review-panel" hidden>
+        <h3>Controleer de woorden</h3>
+        <div class="chip" id="section-suggestion" hidden style="display:block; white-space:normal; margin-bottom:12px; background:var(--accent-bg); color:var(--accent-deep)"></div>
+        <div class="chip" id="split-suggestion" hidden style="display:block; white-space:normal; margin-bottom:12px; background:var(--accent-bg); color:var(--accent-deep)">
+          Dit is een lange lijst. Wil je hem in twee kleinere lijsten splitsen (deel A + deel B)? Kan ook gewoon als één lijst — jij kiest.
+        </div>
+        <div id="review-rows"></div>
+        <button class="btn btn-ghost btn-sm" id="add-row-btn">+ regel toevoegen</button>
+        <div style="height:14px"></div>
+        <button class="btn btn-primary btn-block" id="save-deck-btn">Lijst opslaan</button>
+        <button class="btn btn-ghost btn-block" id="save-deck-split-btn" hidden style="margin-top:8px">Splits in twee lijsten (deel A + deel B)</button>
+      </div>
+      </div>
+    </section>
+
+    <!-- PRACTICE SETUP -->
+    <section class="view" id="view-practice" hidden>
+      <div class="topbar"><h1>Oefenen</h1></div>
+      <div class="panel" id="practice-empty" hidden>
+        <p class="muted">Voeg eerst een woordenlijst toe, kom dan hier terug om te oefenen.</p>
+      </div>
+      <div id="practice-form">
+        <div class="subjectbar" id="practice-subject-bar" hidden></div>
+        <div class="lang-grid" id="practice-lang-grid"></div>
+        <div id="practice-details" hidden>
+          <div class="panel">
+            <div class="field">
+              <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px">
+                <label style="margin-bottom:0">Welke lijst(en)</label>
+                <button type="button" class="archived-toggle" id="deck-select-toggle">alles aan/uit</button>
+              </div>
+              <div class="check-row" id="practice-group-chips" style="margin-top:8px" hidden></div>
+              <div class="check-row" id="practice-deck-list" style="margin-top:8px"></div>
+            </div>
+            <div class="field" id="maintain-field" hidden>
+              <label class="check on" id="maintain-check-wrap"><input type="checkbox" id="include-maintain" checked> Ook lijsten die ik onderhoud meenemen (komen minder vaak voor)</label>
+            </div>
+            <div class="field">
+              <label>Richting</label>
+              <div class="seg" id="practice-direction">
+                <button data-v="ab" class="active">A → B</button>
+                <button data-v="ba">B → A</button>
+                <button data-v="mix">Gemengd</button>
+              </div>
+              <p class="muted" id="direction-hint" style="font-size:.76rem; margin-top:6px"></p>
+            </div>
+            <div class="field">
+              <label>Hoe je antwoordt</label>
+              <div class="check-row">
+                <label class="check on" id="mode-type-wrap"><input type="checkbox" id="mode-type" checked> Typen</label>
+                <label class="check on" id="mode-choice-wrap"><input type="checkbox" id="mode-choice" checked> Meerkeuze</label>
+              </div>
+              <p class="muted" style="font-size:.74rem; margin-top:6px">Nieuwe woorden beginnen als meerkeuze. Zodra je ze goed hebt, schakelt het over op typen.</p>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" id="start-btn">Begin met oefenen</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="view-settings" hidden>
+      <div class="topbar"><h1>Instellingen</h1></div>
+      <div class="panel">
+        <h3 style="margin-top:0">Account</h3>
+        <button class="btn btn-ghost btn-block" id="signout-btn">Uitloggen</button>
+      </div>
+      <div class="panel">
+        <h3 style="margin-top:0">Welke lijsten</h3>
+        <p class="muted" style="font-size:.82rem; margin-top:-8px">Kies hier de lijsten waarop een actie hieronder van toepassing is.</p>
+        <div class="field">
+          <label>Vak</label>
+          <select id="settings-subject"></select>
+        </div>
+        <div class="field" id="settings-deck-field" hidden style="margin-bottom:0">
+          <label>Lijst</label>
+          <select id="settings-deck"></select>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3 style="margin-top:0">Voortgang resetten</h3>
+        <p class="muted" style="font-size:.82rem; margin-top:-8px">Zet woorden weer op "nog niet geleerd" — de lijsten en woorden zelf blijven gewoon bestaan. Dit reset alleen jouw eigen voortgang.</p>
+        <button class="btn btn-ghost btn-block" id="settings-reset-btn" style="background:var(--wrong-bg); color:var(--wrong)">Voortgang resetten…</button>
+        <div id="settings-reset-confirm" class="leave-confirm" style="margin-top:10px; flex-wrap:wrap" hidden>
+          <span style="flex:1; min-width:180px" id="settings-reset-msg"></span>
+          <button class="btn btn-ghost btn-sm" id="settings-reset-cancel">Annuleer</button>
+          <button class="btn btn-sm" style="background:var(--wrong); color:#fff" id="settings-reset-confirm-btn">Ja, reset</button>
+        </div>
+        <p class="muted" id="settings-reset-status" style="font-size:.8rem; margin-top:8px"></p>
+      </div>
+
+      <div class="panel">
+        <h3 style="margin-top:0">Lijst exporteren</h3>
+        <p class="muted" style="font-size:.82rem; margin-top:-8px">Maak een bestand van een lijst, een groep lijsten of alles — stuur dit naar iemand anders die VocabiTash ook gebruikt, zodat zij het kunnen importeren.</p>
+        <div class="field">
+          <label>Vak</label>
+          <select id="export-subject"></select>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Wat wil je exporteren?</label>
+          <select id="export-deck"></select>
+        </div>
+        <button class="btn btn-primary btn-block" id="export-btn" style="margin-top:14px">Exporteren…</button>
+        <p class="muted" id="export-status" style="font-size:.8rem; margin-top:8px"></p>
+      </div>
+
+    </section>
+  </div>
+
+  <div class="tabbar" id="tabbar" hidden>
+    <div class="tabbar-inner">
+      <button class="tab active" data-view="home"><span class="ic">⌂</span>Start</button>
+      <button class="tab" data-view="practice"><span class="ic">▸</span>Oefenen</button>
+      <button class="tab" data-view="add"><span class="ic">+</span>Toevoegen</button>
+      <button class="tab" data-view="settings"><span class="ic">⚙</span>Instellingen</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUIZ -->
+<div class="quiz-wrap" id="quiz-wrap" hidden>
+  <div class="quiz-head">
+    <div class="quiz-progress"><i id="quiz-progress-bar" style="width:0%"></i></div>
+    <button class="quiz-close" id="quiz-close">✕</button>
+  </div>
+  <div id="quiz-leave" class="leave-confirm" style="max-width:520px;margin:0 auto 8px;width:100%" hidden>
+    <span style="flex:1" id="quiz-leave-msg">Stoppen met oefenen? Je voortgang tot nu toe is opgeslagen.</span>
+    <button class="btn btn-ghost btn-sm" id="quiz-leave-cancel">Doorgaan</button>
+    <button class="btn btn-sm" style="background:var(--wrong);color:#fff" id="quiz-leave-confirm">Stoppen</button>
+  </div>
+  <div class="quiz-body" id="quiz-body"></div>
+</div>
+
+<!-- SUMMARY -->
+<div class="summary-wrap" id="summary-wrap" hidden>
+  <div id="summary-ring"></div>
+  <div class="stamp" id="summary-stamp"></div>
+  <div class="summary-grid">
+    <div class="stat"><div class="n" id="sum-correct">0</div><div class="l">in één keer goed</div></div>
+    <div class="stat"><div class="n" id="sum-total">0</div><div class="l">woorden gevraagd</div></div>
+    <div class="stat"><div class="n" id="sum-mastered">0</div><div class="l">nu geleerd</div></div>
+  </div>
+  <div class="retry-list" id="retry-list" hidden></div>
+  <div style="display:flex; gap:10px; width:100%; max-width:420px">
+    <button class="btn btn-ghost btn-block" id="summary-home">Klaar</button>
+    <button class="btn btn-primary btn-block" id="summary-again">Nog een keer</button>
+  </div>
+</div>
+
+<!-- EDIT DECK -->
+<div class="quiz-wrap" id="edit-deck-wrap" hidden>
+  <div class="quiz-head">
+    <h2 style="flex:1; font-family:var(--font-display); font-size:1.15rem; margin:0">Lijst bewerken</h2>
+    <button class="quiz-close" id="edit-deck-close" title="Sluiten">✕</button>
+  </div>
+  <div class="quiz-body" style="gap:14px">
+    <div class="panel">
+      <div class="field">
+        <label>Naam van de lijst</label>
+        <input type="text" id="edit-deck-name" placeholder="bijv. Hoofdstuk 4 — dieren">
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>Groep</label>
+        <select id="edit-deck-group-select">
+          <option value="">Geen groep</option>
+          <option value="__new__">+ Nieuwe groep…</option>
+        </select>
+        <input type="text" id="edit-deck-group-new" placeholder="Naam van de groep" hidden style="margin-top:8px">
+      </div>
+    </div>
+    <div class="panel">
+      <h3 style="margin-top:0">Woorden</h3>
+      <div id="edit-deck-rows"></div>
+      <button class="btn btn-ghost btn-sm" id="edit-deck-add-row-btn">+ woord toevoegen</button>
+    </div>
+    <button class="btn btn-primary btn-block" id="edit-deck-save-btn">Wijzigingen opslaan</button>
+    <p class="muted" id="edit-deck-status" style="font-size:.8rem; text-align:center"></p>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

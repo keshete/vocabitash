@@ -1,0 +1,7 @@
+{
+  "name": "vocabitash",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "VocabiTash — vocabulary practice app. Static site (index.html/app.js) + one Vercel serverless function for AI photo import, backed by Firebase (Firestore + Google sign-in)."
+}
