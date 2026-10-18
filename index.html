@@ -272,9 +272,10 @@ input[type=text]:focus, select:focus, button:focus-visible{outline:2px solid var
 .tab .ic{font-size:1.25rem; font-family:var(--font-display)}
 .tab.active{color:var(--accent)}
 .tab.active .ic{background:var(--surface-2); border-radius:9px; padding:1px 10px}
-/* Only the admin account can add/edit shared lists — see ADMIN_EMAIL in app.js */
+/* Only someone who can edit the active circle (its moderator, or the admin)
+   sees the Toevoegen tab — see canEditCircle() in app.js */
 .tab[data-view="add"]{display:none}
-body.is-admin .tab[data-view="add"]{display:flex}
+body.can-edit-circle .tab[data-view="add"]{display:flex}
 
 /* ---- quiz ---- */
 .quiz-wrap{position:fixed; inset:0; background:var(--bg); z-index:30; display:flex; flex-direction:column;
@@ -374,6 +375,7 @@ body.is-admin .tab[data-view="add"]{display:flex}
       <span class="wordmark">VocabiTash</span>
     </div>
     <p class="muted">Log in om je eigen woordenlijsten en voortgang te zien.</p>
+    <p class="muted" style="font-size:.78rem; max-width:360px">⚠️ De lijsten in deze app zijn door mensen gemaakt en kunnen fouten bevatten of onvolledig zijn. Gebruik dit als oefening, niet als enige voorbereiding op een toets.</p>
     <button type="button" class="btn btn-primary" id="google-signin-btn" style="display:inline-flex; align-items:center; gap:10px">
       <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path fill="#fff" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#fff" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.93v2.33A9 9 0 0 0 9 18z"/><path fill="#fff" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.93A9 9 0 0 0 0 9c0 1.45.35 2.83.93 4.03l3.02-2.33z"/><path fill="#fff" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .93 4.97L3.95 7.3C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
       Inloggen met Google
@@ -406,6 +408,7 @@ body.is-admin .tab[data-view="add"]{display:flex}
         </h1>
         <div class="sub muted">jouw woordenlijsten</div>
       </div>
+      <p class="muted" style="font-size:.76rem; background:var(--surface-2); border-radius:10px; padding:8px 10px; margin:0 0 14px">⚠️ Deze lijsten kunnen fouten bevatten of onvolledig zijn — vertrouw er niet blindelings op als enige voorbereiding op een toets.</p>
       <div class="subjectbar" id="subject-bar" hidden></div>
       <div class="stats" id="home-stats" hidden>
         <div class="stat"><div class="n" id="st-total">0</div><div class="l">woorden</div></div>
@@ -413,6 +416,10 @@ body.is-admin .tab[data-view="add"]{display:flex}
         <div class="stat"><div class="n" id="st-due">0</div><div class="l">nu te doen</div></div>
       </div>
       <div id="deck-list" style="display:flex; flex-direction:column; gap:16px"></div>
+      <div class="panel" style="margin-top:16px; border-style:dashed; opacity:.8">
+        <h3 style="margin-top:0">🚧 Binnenkort</h3>
+        <p class="muted" style="font-size:.84rem; margin-bottom:0">Oefenen voor andere vakken en toetsen — niet alleen woordenlijsten. Dit is nog niet af, maar komt eraan.</p>
+      </div>
     </section>
 
     <!-- ADD -->
@@ -543,6 +550,35 @@ body.is-admin .tab[data-view="add"]{display:flex}
         <h3 style="margin-top:0">Account</h3>
         <button class="btn btn-ghost btn-block" id="signout-btn">Uitloggen</button>
       </div>
+
+      <div class="panel">
+        <h3 style="margin-top:0">Cirkel</h3>
+        <p class="muted" style="font-size:.82rem; margin-top:-8px">Je ziet en oefent alleen de lijsten van je huidige cirkel.</p>
+        <div class="field" id="circle-switch-field" style="margin-bottom:0">
+          <label>Actieve cirkel</label>
+          <select id="circle-select"></select>
+        </div>
+        <p class="muted" id="circle-single-label" style="font-size:.9rem; margin:0" hidden></p>
+      </div>
+
+      <div class="panel" id="admin-circles-panel" hidden>
+        <h3 style="margin-top:0">Cirkels beheren</h3>
+        <p class="muted" style="font-size:.82rem; margin-top:-8px">Jij bent de enige die cirkels kan aanmaken en moderators kan aanwijzen. Een moderator kan lijsten toevoegen/bewerken binnen hun eigen cirkel.</p>
+        <div id="admin-circles-list" style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px"></div>
+        <div class="field">
+          <label>Naam nieuwe cirkel</label>
+          <input type="text" id="new-circle-name" placeholder="Bijv. IG-1B of Klas 3C">
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>E-mail van de moderator</label>
+          <input type="email" id="new-circle-moderator" placeholder="naam@gmail.com">
+        </div>
+        <button class="btn btn-primary btn-block" id="new-circle-btn" style="margin-top:14px">+ Cirkel aanmaken</button>
+        <p class="muted" id="admin-circles-status" style="font-size:.8rem; margin-top:8px"></p>
+        <button class="btn btn-ghost btn-block" id="migrate-legacy-btn" style="margin-top:14px">Bestaande lijsten zonder cirkel toewijzen aan actieve cirkel</button>
+        <p class="muted" id="migrate-legacy-status" style="font-size:.8rem; margin-top:8px"></p>
+      </div>
+
       <div class="panel">
         <h3 style="margin-top:0">Welke lijsten</h3>
         <p class="muted" style="font-size:.82rem; margin-top:-8px">Kies hier de lijsten waarop een actie hieronder van toepassing is.</p>

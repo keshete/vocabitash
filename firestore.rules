@@ -2,20 +2,60 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Vocabulary lists and words: a shared pool everyone who's signed in can
-    // read, but only the admin account can add/edit/delete — so no one else
-    // can accidentally (or deliberately) change or delete someone's list.
-    match /decks/{deckId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.token.email == "keshet85@gmail.com";
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == "keshet85@gmail.com";
     }
-    match /words/{wordId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.token.email == "keshet85@gmail.com";
+    function isCircleMember(circleId) {
+      return circleId != null &&
+        exists(/databases/$(database)/documents/circles/$(circleId)/members/$(request.auth.uid));
+    }
+    function isCircleModerator(circleId) {
+      return circleId != null &&
+        get(/databases/$(database)/documents/circles/$(circleId)).data.moderatorEmail == request.auth.token.email;
     }
 
-    // Each person's own practice progress, accepted answers and mnemonics —
-    // private: only that signed-in person can read or write their own.
+    // Circles: independent groups, each with their own lists. Only the admin
+    // can create/delete a circle or see the full list of circles; anyone
+    // signed in can read a single circle by id (needed to join via an
+    // invite link, and to show its name); the admin or that circle's own
+    // moderator can update it (e.g. reassigning the moderator).
+    match /circles/{circleId} {
+      allow get: if request.auth != null;
+      allow list: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (request.auth != null && resource.data.moderatorEmail == request.auth.token.email);
+
+      // Membership — proves who's in this circle. Anyone can add themselves
+      // (that's how joining an invite link works — no approval step), and
+      // can remove themselves; the admin or the circle's moderator can also
+      // remove someone.
+      match /members/{memberUid} {
+        allow read: if isAdmin() || isCircleModerator(circleId) ||
+          (request.auth != null && request.auth.uid == memberUid);
+        allow create: if request.auth != null && request.auth.uid == memberUid;
+        allow delete: if isAdmin() || isCircleModerator(circleId) ||
+          (request.auth != null && request.auth.uid == memberUid);
+      }
+    }
+
+    // Vocabulary lists and words: scoped to a circle (each has a circleId
+    // field). Anyone who's a member of that circle can read; only that
+    // circle's moderator, or the admin, can add/edit/delete — so no one
+    // else can accidentally (or deliberately) change or delete a list.
+    match /decks/{deckId} {
+      allow read: if isAdmin() || isCircleMember(resource.data.circleId);
+      allow create: if isAdmin() || isCircleModerator(request.resource.data.circleId);
+      allow update, delete: if isAdmin() || isCircleModerator(resource.data.circleId);
+    }
+    match /words/{wordId} {
+      allow read: if isAdmin() || isCircleMember(resource.data.circleId);
+      allow create: if isAdmin() || isCircleModerator(request.resource.data.circleId);
+      allow update, delete: if isAdmin() || isCircleModerator(resource.data.circleId);
+    }
+
+    // Each person's own practice progress, accepted answers, mnemonics, and
+    // circle memberships — private: only that signed-in person can read or
+    // write their own.
     match /data/users/{uid}/profile {
       allow read, write: if request.auth != null && request.auth.uid == uid;
       match /{collection}/{docId} {

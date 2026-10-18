@@ -4,13 +4,30 @@ const $ = s=>document.querySelector(s);
 const $$ = s=>Array.from(document.querySelectorAll(s));
 
 // ---------- state ----------
-let db=null, sampleFn=null, uid=null, downloadsCap=null;
-// Only this account may add/edit/delete the shared lists — everyone else can
-// read and practice them, but can't change them (so no one accidentally, or
-// not-so-accidentally, breaks a list someone else is using). Matches
-// firestore.rules, which enforces the same thing server-side.
+let db=null, sampleFn=null, uid=null, downloadsCap=null, myEmail=null;
+// This account is the one super-admin: can create circles (independent
+// groups, each with their own lists) and assign a moderator to each. A
+// circle's moderator can add/edit/delete lists within their own circle;
+// everyone else can read and practice the lists in whichever circle(s)
+// they've joined, but can't change them. Matches firestore.rules, which
+// enforces the same thing server-side.
 const ADMIN_EMAIL='keshet85@gmail.com';
 let isAdmin=false;
+// ---------- circles ----------
+let circles={};          // circleId -> {name, moderatorEmail}
+let myCircles=[];        // [{id,name}] circles this account belongs to (admin: all of them)
+let activeCircleId=null; // which circle's lists are currently loaded into decks/words
+let unsubDecks=null, unsubWords=null;
+function canEditCircle(circleId){
+  if(isAdmin) return true;
+  if(!circleId) return false;
+  const c=circles[circleId];
+  return !!(c && c.moderatorEmail && myEmail && c.moderatorEmail.toLowerCase()===myEmail);
+}
+function circleStorageKey(){ return 'vocabitash_active_circle_'+uid; }
+function persistActiveCircle(){
+  try{ localStorage.setItem(circleStorageKey(), activeCircleId||''); }catch(e){}
+}
 let decks={}, words={}, progress={}, acceptedAnswers={}, mnemonics={};
 let currentView='home';
 let shotFiles=[];
@@ -248,6 +265,7 @@ function openGroupEditor(id, chipEl){
 }
 function deckCardHtml(id){
   const d=decks[id];
+  const canEdit=canEditCircle(d.circleId);
   const status=deckStatus(id);
   const archived=status==='archived';
   const ws=wordsForDeck(id);
@@ -263,7 +281,7 @@ function deckCardHtml(id){
         <div class="deck-langs">${escapeHtml(trLang(d.langA))} ⇄ ${escapeHtml(trLang(d.langB))} · ${ws.length} woord${ws.length===1?'':'en'}</div>
       </div>
       <div class="deck-head-actions">
-        ${isAdmin? `<button class="deck-edit" data-id="${id}" title="Lijst bewerken">✏️</button>
+        ${canEdit? `<button class="deck-edit" data-id="${id}" title="Lijst bewerken">✏️</button>
         <button class="deck-del" data-id="${id}" title="Lijst verwijderen">🗑</button>` : ''}
       </div>
     </div>
@@ -271,10 +289,10 @@ function deckCardHtml(id){
       <div class="bar"><i style="width:${pct}%"></i></div>
       <span class="chip">${m}/${ws.length} geleerd</span>
       ${dueN? `<span class="chip due">${dueN} te doen</span>`:''}
-      ${isAdmin
+      ${canEdit
         ? `<button type="button" class="chip group-chip" data-id="${id}">${(d.group||'').trim() ? '📁 '+escapeHtml(d.group.trim()) : '+ groep'}</button>`
         : ((d.group||'').trim() ? `<span class="chip">📁 ${escapeHtml(d.group.trim())}</span>` : '')}
-      ${isAdmin
+      ${canEdit
         ? `<select class="status-select" data-id="${id}">
             <option value="active" ${status==='active'?'selected':''}>Bezig</option>
             <option value="maintain" ${status==='maintain'?'selected':''}>Onderhouden (minder vaak)</option>
@@ -282,7 +300,7 @@ function deckCardHtml(id){
           </select>`
         : ''}
     </div>`;
-  if(isAdmin){
+  if(canEdit){
     const groupChip=card.querySelector('.group-chip');
     groupChip.onclick=(e)=>{ e.stopPropagation(); openGroupEditor(id, groupChip); };
     const editBtn=card.querySelector('.deck-edit');
@@ -502,7 +520,7 @@ async function saveEditDeck(){
           await db.doc('words/'+r.id).update({a:at, b:bt});
         }
       } else {
-        await db.collection('words').add({deckId:editDeckId, a:at, b:bt, createdAt:iso()});
+        await db.collection('words').add({deckId:editDeckId, circleId:d.circleId, a:at, b:bt, createdAt:iso()});
       }
     }
     toast('Lijst bijgewerkt');
@@ -731,15 +749,16 @@ async function extractFromPhoto(){
 }
 
 async function createDeckWithRows(name, subject, langA, langB, rows){
-  const deckRef = await db.collection('decks').add({name, subject, langA, langB, status:'active', createdAt:iso()});
+  const deckRef = await db.collection('decks').add({name, subject, langA, langB, status:'active', createdAt:iso(), circleId:activeCircleId});
   for(const r of rows){
-    const body={deckId:deckRef.id, a:r.a.trim(), b:r.b.trim(), createdAt:iso()};
+    const body={deckId:deckRef.id, circleId:activeCircleId, a:r.a.trim(), b:r.b.trim(), createdAt:iso()};
     if(r.note && r.note.trim()) body.note=r.note.trim();
     await db.collection('words').add(body);
   }
   return deckRef;
 }
 async function saveDeck(){
+  if(!activeCircleId){ toast('Kies of maak eerst een cirkel in Instellingen'); return; }
   const name=$('#deck-name').value.trim() || 'Naamloze lijst';
   const subject=currentLearnLang();
   const [langA,langB]=currentLangPair();
@@ -916,6 +935,7 @@ function updateDirectionHint(){
 
 // ---------- rendering: SETTINGS ----------
 function renderSettings(){
+  applyActiveCircleUI();
   $('#settings-reset-confirm').hidden=true;
   $('#settings-reset-status').textContent='';
   const sel=$('#settings-subject');
@@ -1090,6 +1110,7 @@ function handleImportFile(file){
 }
 async function confirmImport(){
   if(!importPayload) return;
+  if(!activeCircleId){ $('#import-status').textContent='Kies of maak eerst een cirkel in Instellingen.'; return; }
   $('#import-confirm-btn').disabled=true;
   $('#import-status').textContent='Bezig met importeren…';
   try{
@@ -1103,10 +1124,10 @@ async function confirmImport(){
         langA: String(d.langA||'').trim(),
         langB: String(d.langB||'').trim(),
         group: String(d.group||'').trim(),
-        status:'active', createdAt: iso()
+        status:'active', createdAt: iso(), circleId: activeCircleId
       });
       for(const w of rows){
-        const body={deckId:deckRef.id, a:String(w.a).trim(), b:String(w.b).trim(), createdAt: iso()};
+        const body={deckId:deckRef.id, circleId:activeCircleId, a:String(w.a).trim(), b:String(w.b).trim(), createdAt: iso()};
         if(w.note && String(w.note).trim()) body.note=String(w.note).trim();
         await db.collection('words').add(body);
       }
@@ -1485,7 +1506,7 @@ function abandonQuiz(){
 
 // ---------- nav ----------
 function switchView(name){
-  if(name==='add' && !isAdmin) name='home';
+  if(name==='add' && !canEditCircle(activeCircleId)) name='home';
   currentView=name;
   $$('.view').forEach(v=>v.hidden=true);
   $('#view-'+name).hidden=false;
@@ -1560,6 +1581,59 @@ function wireStatic(){
     $('#'+id).onchange=(e)=> $('#'+id+'-wrap').classList.toggle('on', e.target.checked);
   });
 
+  $('#circle-select').onchange=()=>{
+    activeCircleId=$('#circle-select').value;
+    persistActiveCircle();
+    applyActiveCircleUI();
+    subscribeCircleScoped();
+    if(currentView==='add') switchView('home');
+  };
+  $('#new-circle-btn').onclick=async ()=>{
+    const name=$('#new-circle-name').value.trim();
+    const mod=$('#new-circle-moderator').value.trim().toLowerCase();
+    if(!name || !mod){ $('#admin-circles-status').textContent='Vul een naam en moderator-e-mail in.'; return; }
+    $('#new-circle-btn').disabled=true;
+    $('#admin-circles-status').textContent='Bezig…';
+    try{
+      const ref=await db.collection('circles').add({name, moderatorEmail:mod, createdAt:iso()});
+      circles[ref.id]={name, moderatorEmail:mod};
+      myCircles.push({id:ref.id, name});
+      activeCircleId=ref.id;
+      persistActiveCircle();
+      $('#new-circle-name').value=''; $('#new-circle-moderator').value='';
+      $('#admin-circles-status').textContent=`Cirkel "${name}" aangemaakt en actief.`;
+      applyActiveCircleUI();
+      subscribeCircleScoped();
+    }catch(e){
+      $('#admin-circles-status').textContent='Aanmaken mislukt — probeer het opnieuw.';
+    }finally{
+      $('#new-circle-btn').disabled=false;
+    }
+  };
+  $('#migrate-legacy-btn').onclick=async ()=>{
+    if(!activeCircleId){ $('#migrate-legacy-status').textContent='Kies of maak eerst een cirkel.'; return; }
+    $('#migrate-legacy-btn').disabled=true;
+    $('#migrate-legacy-status').textContent='Bezig…';
+    try{
+      const decksSnap=await db.collection('decks').get();
+      let n=0;
+      for(const d of decksSnap.docs){
+        if(!d.data().circleId){ await db.doc('decks/'+d.id).update({circleId:activeCircleId}); n++; }
+      }
+      const wordsSnap=await db.collection('words').get();
+      let wn=0;
+      for(const w of wordsSnap.docs){
+        if(!w.data().circleId){ await db.doc('words/'+w.id).update({circleId:activeCircleId}); wn++; }
+      }
+      $('#migrate-legacy-status').textContent = (n||wn) ? `Klaar — ${n} lijst${n===1?'':'en'} en ${wn} woord${wn===1?'':'en'} toegewezen.` : 'Niets om toe te wijzen — alles heeft al een cirkel.';
+      subscribeCircleScoped();
+    }catch(e){
+      $('#migrate-legacy-status').textContent='Mislukt — probeer het opnieuw.';
+    }finally{
+      $('#migrate-legacy-btn').disabled=false;
+    }
+  };
+
   $('#settings-subject').onchange=()=>{
     populateSettingsDecks();
     $('#settings-reset-confirm').hidden=true; $('#settings-reset-status').textContent='';
@@ -1617,17 +1691,30 @@ function wireStatic(){
 }
 
 // ---------- db subscriptions ----------
-function subscribeAll(){
-  db.collection('decks').onSnapshot(snap=>{
+// Decks/words are scoped to the active circle (re-subscribed whenever the
+// person switches circles); progress/accepted/mnemonics are private to this
+// account and only need subscribing once per sign-in.
+function subscribeCircleScoped(){
+  if(unsubDecks){ unsubDecks(); unsubDecks=null; }
+  if(unsubWords){ unsubWords(); unsubWords=null; }
+  decks={}; words={};
+  if(!activeCircleId){
+    if(currentView==='home') renderHome();
+    if(currentView==='practice') renderPracticeSetup();
+    return;
+  }
+  unsubDecks = db.collection('decks').where('circleId','==',activeCircleId).onSnapshot(snap=>{
     decks={}; snap.docs.forEach(d=> decks[d.id]=d.data());
     if(currentView==='home') renderHome();
     if(currentView==='practice') renderPracticeSetup();
   }, ()=>{});
-  db.collection('words').onSnapshot(snap=>{
+  unsubWords = db.collection('words').where('circleId','==',activeCircleId).onSnapshot(snap=>{
     words={}; snap.docs.forEach(d=> words[d.id]=d.data());
     if(currentView==='home') renderHome();
     if(currentView==='practice') renderPracticeSetup();
   }, ()=>{});
+}
+function subscribeUserPrivateData(){
   progressCol().onSnapshot(snap=>{
     progress={}; snap.docs.forEach(d=> progress[d.id]=d.data());
     if(currentView==='home') renderHome();
@@ -1649,10 +1736,127 @@ function showSignedOut(){
   $('#nodb').hidden=false;
   $('#main').hidden=true; $('#tabbar').hidden=true;
 }
+
+// ---------- circles: load / join / UI ----------
+// Admin sees every circle (needed to manage them); everyone else only sees
+// the circles listed in their own private profile doc (written when they
+// join via an invite link).
+async function loadMyCircles(){
+  circles={}; myCircles=[];
+  if(isAdmin){
+    const snap=await db.collection('circles').get();
+    snap.docs.forEach(d=> circles[d.id]=d.data());
+    myCircles=Object.keys(circles).map(id=>({id, name:(circles[id]||{}).name||'Naamloze cirkel'}));
+  } else {
+    const profSnap=await db.doc('data/users/'+uid+'/profile').get();
+    const ids=(profSnap.exists() && profSnap.data().circles) || [];
+    for(const id of ids){
+      try{
+        const cSnap=await db.doc('circles/'+id).get();
+        if(cSnap.exists()) circles[id]=cSnap.data();
+      }catch(e){ /* a circle that got deleted, or no longer readable — skip it */ }
+    }
+    myCircles=ids.filter(id=>circles[id]).map(id=>({id, name:(circles[id]||{}).name||'Naamloze cirkel'}));
+  }
+}
+function pickActiveCircle(){
+  let saved=null;
+  try{ saved=localStorage.getItem(circleStorageKey()); }catch(e){}
+  if(saved && circles[saved]) return saved;
+  return myCircles[0] ? myCircles[0].id : null;
+}
+// If the URL is an invite link (#join-<circleId>), offer to join that circle.
+async function maybeHandleJoinLink(){
+  const m=location.hash.match(/^#join-(.+)$/);
+  if(!m) return;
+  const circleId=m[1];
+  history.replaceState(null, '', location.pathname+location.search);
+  if(circles[circleId]){ activeCircleId=circleId; persistActiveCircle(); return; } // already a member
+  try{
+    const cSnap=await db.doc('circles/'+circleId).get();
+    if(!cSnap.exists()){ toast('Deze uitnodigingslink is niet (meer) geldig'); return; }
+    const name=(cSnap.data()||{}).name || 'deze cirkel';
+    if(!confirm('Wil je lid worden van de cirkel "'+name+'"?')) return;
+    await db.doc('circles/'+circleId).collection('members').doc(uid).set({email:myEmail, joinedAt:iso()});
+    const profRef=db.doc('data/users/'+uid+'/profile');
+    const profSnap=await profRef.get();
+    const existingIds=(profSnap.exists() && profSnap.data().circles) || [];
+    if(!existingIds.includes(circleId)){
+      await profRef.set({circles:existingIds.concat([circleId])}, {merge:true});
+    }
+    circles[circleId]=cSnap.data();
+    myCircles.push({id:circleId, name});
+    activeCircleId=circleId;
+    persistActiveCircle();
+    toast('Je bent lid geworden van "'+name+'"');
+  }catch(e){
+    toast('Lid worden mislukt — probeer het opnieuw');
+  }
+}
+function applyActiveCircleUI(){
+  document.body.classList.toggle('can-edit-circle', canEditCircle(activeCircleId));
+  const sel=$('#circle-select'), field=$('#circle-switch-field'), single=$('#circle-single-label');
+  if(myCircles.length>1){
+    field.hidden=false; single.hidden=true;
+    sel.innerHTML=myCircles.map(c=>`<option value="${c.id}" ${c.id===activeCircleId?'selected':''}>${escapeHtml(c.name)}</option>`).join('');
+  } else if(myCircles.length===1){
+    field.hidden=true; single.hidden=false;
+    single.textContent='Cirkel: '+myCircles[0].name;
+  } else {
+    field.hidden=true; single.hidden=false;
+    single.textContent=isAdmin ? 'Nog geen cirkels — maak er hieronder een aan.' : 'Je bent nog geen lid van een cirkel. Vraag iemand om een uitnodigingslink.';
+  }
+  renderAdminCirclesList();
+}
+function renderAdminCirclesList(){
+  const panel=$('#admin-circles-panel');
+  panel.hidden=!isAdmin;
+  if(!isAdmin) return;
+  const list=$('#admin-circles-list');
+  const ids=Object.keys(circles);
+  if(!ids.length){
+    list.innerHTML='<p class="muted" style="font-size:.85rem; margin:0">Nog geen cirkels.</p>';
+    return;
+  }
+  list.innerHTML=ids.map(id=>{
+    const c=circles[id]||{};
+    return `<div class="panel" style="padding:10px 12px; margin:0">
+      <div style="display:flex; justify-content:space-between; gap:8px; align-items:baseline">
+        <b>${escapeHtml(c.name||'Naamloze cirkel')}</b>
+        <button type="button" class="btn btn-ghost btn-sm circle-copy-link" data-id="${id}">🔗 Link</button>
+      </div>
+      <p class="muted" style="font-size:.8rem; margin:4px 0 0">Moderator: ${escapeHtml(c.moderatorEmail||'—')} <button type="button" class="circle-edit-mod" data-id="${id}" style="background:none; border:none; color:var(--accent); font-size:.8rem; cursor:pointer; padding:0; margin-left:4px">wijzigen</button></p>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.circle-copy-link').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const link=location.origin+location.pathname+'#join-'+btn.dataset.id;
+      try{ await navigator.clipboard.writeText(link); toast('Uitnodigingslink gekopieerd'); }
+      catch(e){ prompt('Kopieer deze link handmatig:', link); }
+    };
+  });
+  list.querySelectorAll('.circle-edit-mod').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.dataset.id;
+      const current=(circles[id]||{}).moderatorEmail||'';
+      const next=prompt('E-mail van de moderator voor "'+((circles[id]||{}).name||'')+'":', current);
+      if(next===null) return;
+      const email=next.trim().toLowerCase();
+      if(!email) return;
+      try{
+        await db.doc('circles/'+id).update({moderatorEmail:email});
+        circles[id]={...(circles[id]||{}), moderatorEmail:email};
+        applyActiveCircleUI();
+        toast('Moderator bijgewerkt');
+      }catch(e){ toast('Bijwerken mislukt — probeer het opnieuw'); }
+    };
+  });
+}
+
 async function startAppForUser(user){
   uid = user.uid;
-  isAdmin = (user.email||'').toLowerCase() === ADMIN_EMAIL;
-  document.body.classList.toggle('is-admin', isAdmin);
+  myEmail = (user.email||'').toLowerCase();
+  isAdmin = myEmail === ADMIN_EMAIL;
   db = shims.db;
   sampleFn = shims.sample;
   downloadsCap = shims.downloads;
@@ -1661,7 +1865,13 @@ async function startAppForUser(user){
   $('#main').hidden=false; $('#tabbar').hidden=false;
   wireStatic();
   resetAddForm();
-  subscribeAll();
+  await loadMyCircles();
+  await maybeHandleJoinLink();
+  if(!activeCircleId) activeCircleId=pickActiveCircle();
+  persistActiveCircle();
+  applyActiveCircleUI();
+  subscribeCircleScoped();
+  subscribeUserPrivateData();
   switchView('home');
 }
 function boot(){
