@@ -17,7 +17,8 @@ let isAdmin=false;
 let circles={};          // circleId -> {name, moderatorEmail}
 let myCircles=[];        // [{id,name}] circles this account belongs to (admin: all of them)
 let activeCircleId=null; // which circle's lists are currently loaded into decks/words
-let unsubDecks=null, unsubWords=null;
+let unsubDecks=null, unsubWords=null, unsubJoinRequests=null;
+let joinRequests={}; // requestUid -> {uid,email,requestedAt} — only loaded for whoever moderates the active circle
 function canEditCircle(circleId){
   if(isAdmin) return true;
   if(!circleId) return false;
@@ -44,6 +45,7 @@ let sectionGroupNames={}; // detected section text (or '' for the unlabeled buck
 let quiz=null; // active session state
 let hotData=null;
 let homeSubject=''; // '' = showing the language picker (no language chosen yet)
+let homeSearchQuery=''; // non-empty = searching across every subject instead of showing the picker
 let practiceSubject=''; // same idea, for the Oefenen tab's own language picker
 let practiceGroupFilter=''; // '' = show every list in practiceSubject; otherwise only that group's lists
 function setPracticeSubject(subj){ practiceSubject=subj; practiceGroupFilter=''; }
@@ -346,16 +348,29 @@ function langTileHtml(subj, onPick){
 }
 
 function renderHome(){
+  renderPendingJoinRequests();
   const deckIds=Object.keys(decks);
   const bar=$('#subject-bar');
   const list=$('#deck-list'); list.innerHTML='';
+  const searchField=$('#list-search-field');
 
   if(!deckIds.length){
+    searchField.hidden=true;
     bar.hidden=true; $('#home-stats').hidden=true;
     list.innerHTML = '<div class="empty"><div class="big">Nog geen lijsten</div>'+
       '<p>Maak een foto van een pagina uit je boek en VocabiTash maakt er een oefenset van.</p>'+
       '<button class="btn btn-primary" id="empty-add-btn">Voeg je eerste lijst toe</button></div>';
     $('#empty-add-btn').onclick=()=>switchView('add');
+    return;
+  }
+  // Only worth showing once there's enough to search through.
+  searchField.hidden = deckIds.length<6;
+  if(deckIds.length<6 && homeSearchQuery){ homeSearchQuery=''; $('#list-search-input').value=''; }
+
+  const q=homeSearchQuery.trim();
+  if(q){
+    bar.hidden=true; $('#home-stats').hidden=true;
+    renderSearchResults(q, list);
     return;
   }
 
@@ -420,6 +435,31 @@ function renderHome(){
       archivedIds.sort(sortByNew).forEach(id=> list.appendChild(deckCardHtml(id)));
     }
   }
+}
+function renderSearchResults(query, list){
+  const needle=stripAccents(query).toLowerCase();
+  const matchIds=Object.keys(decks).filter(id=>{
+    const d=decks[id];
+    const subj=trLang((d.subject||'').trim()||'Overig');
+    const hay=stripAccents([d.name, d.group, subj].filter(Boolean).join(' ')).toLowerCase();
+    return hay.includes(needle);
+  });
+  if(!matchIds.length){
+    list.innerHTML='<div class="empty"><div class="big">Niets gevonden</div>'+
+      `<p>Geen lijst komt overeen met "${escapeHtml(query)}".</p></div>`;
+    return;
+  }
+  const bySubject={};
+  matchIds.forEach(id=>{
+    const subj=(decks[id].subject||'').trim()||'Overig';
+    (bySubject[subj]=bySubject[subj]||[]).push(id);
+  });
+  Object.keys(bySubject).sort((a,b)=> a==='Overig'?1:b==='Overig'?-1:a.localeCompare(b)).forEach(subj=>{
+    const section=document.createElement('div'); section.className='deck-group';
+    section.innerHTML=`<div class="deck-group-head"><h4>${escapeHtml(trLang(subj))}</h4></div>`;
+    bySubject[subj].sort(sortByNew).forEach(id=> section.appendChild(deckCardHtml(id)));
+    list.appendChild(section);
+  });
 }
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const LANG_NL={English:'Engels', Dutch:'Nederlands', Latin:'Latijn'};
@@ -1581,6 +1621,8 @@ function wireStatic(){
     $('#'+id).onchange=(e)=> $('#'+id+'-wrap').classList.toggle('on', e.target.checked);
   });
 
+  $('#list-search-input').oninput=(e)=>{ homeSearchQuery=e.target.value; renderHome(); };
+
   $('#circle-select').onchange=()=>{
     activeCircleId=$('#circle-select').value;
     persistActiveCircle();
@@ -1697,7 +1739,8 @@ function wireStatic(){
 function subscribeCircleScoped(){
   if(unsubDecks){ unsubDecks(); unsubDecks=null; }
   if(unsubWords){ unsubWords(); unsubWords=null; }
-  decks={}; words={};
+  if(unsubJoinRequests){ unsubJoinRequests(); unsubJoinRequests=null; }
+  decks={}; words={}; joinRequests={};
   if(!activeCircleId){
     if(currentView==='home') renderHome();
     if(currentView==='practice') renderPracticeSetup();
@@ -1713,6 +1756,55 @@ function subscribeCircleScoped(){
     if(currentView==='home') renderHome();
     if(currentView==='practice') renderPracticeSetup();
   }, ()=>{});
+  // Pending join requests are only readable by whoever moderates this circle
+  // (or the admin) — everyone else's query would just be rejected.
+  if(canEditCircle(activeCircleId)){
+    unsubJoinRequests = db.doc('circles/'+activeCircleId).collection('requests').onSnapshot(snap=>{
+      joinRequests={}; snap.docs.forEach(d=> joinRequests[d.id]=d.data());
+      if(currentView==='home') renderPendingJoinRequests();
+    }, ()=>{});
+  }
+}
+function renderPendingJoinRequests(){
+  const panel=$('#pending-requests-panel');
+  const ids=Object.keys(joinRequests);
+  if(!canEditCircle(activeCircleId) || !ids.length){ panel.hidden=true; return; }
+  panel.hidden=false;
+  const list=$('#pending-requests-list');
+  list.innerHTML=ids.map(id=>{
+    const r=joinRequests[id];
+    return `<div class="panel" style="padding:10px 12px; margin:0">
+      <b>${escapeHtml(r.email||'iemand')}</b>
+      <div class="muted" style="font-size:.8rem; margin:2px 0 8px">wil lid worden van deze cirkel</div>
+      <div style="display:flex; gap:8px">
+        <button type="button" class="btn btn-primary btn-sm request-approve" data-id="${id}" style="flex:1">Toelaten</button>
+        <button type="button" class="btn btn-ghost btn-sm request-reject" data-id="${id}" style="flex:1">Afwijzen</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.request-approve').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.dataset.id; const r=joinRequests[id]; if(!r) return;
+      btn.disabled=true;
+      try{
+        await db.doc('circles/'+activeCircleId).collection('members').doc(id).set({
+          uid:id, circleId:activeCircleId, email:r.email||'', joinedAt:iso()
+        });
+        await db.doc('circles/'+activeCircleId).collection('requests').doc(id).delete();
+        toast((r.email||'Die persoon')+' is toegelaten tot de cirkel');
+      }catch(e){ toast('Toelaten mislukt — probeer het opnieuw'); btn.disabled=false; }
+    };
+  });
+  list.querySelectorAll('.request-reject').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.dataset.id;
+      btn.disabled=true;
+      try{
+        await db.doc('circles/'+activeCircleId).collection('requests').doc(id).delete();
+        toast('Verzoek afgewezen');
+      }catch(e){ toast('Afwijzen mislukt — probeer het opnieuw'); btn.disabled=false; }
+    };
+  });
 }
 function subscribeUserPrivateData(){
   progressCol().onSnapshot(snap=>{
@@ -1739,8 +1831,9 @@ function showSignedOut(){
 
 // ---------- circles: load / join / UI ----------
 // Admin sees every circle (needed to manage them); everyone else only sees
-// the circles listed in their own private profile doc (written when they
-// join via an invite link).
+// the circles they actually have an approved membership doc in — found with
+// one query across every circle's "members" subcollection, rather than kept
+// in a separate per-person list that could drift out of sync.
 async function loadMyCircles(){
   circles={}; myCircles=[];
   if(isAdmin){
@@ -1748,8 +1841,8 @@ async function loadMyCircles(){
     snap.docs.forEach(d=> circles[d.id]=d.data());
     myCircles=Object.keys(circles).map(id=>({id, name:(circles[id]||{}).name||'Naamloze cirkel'}));
   } else {
-    const profSnap=await db.doc('data/users/'+uid+'/profile').get();
-    const ids=(profSnap.exists() && profSnap.data().circles) || [];
+    const memSnap=await db.collectionGroup('members').where('uid','==',uid).get();
+    const ids=Array.from(new Set(memSnap.docs.map(d=> d.data().circleId).filter(Boolean)));
     for(const id of ids){
       try{
         const cSnap=await db.doc('circles/'+id).get();
@@ -1765,32 +1858,24 @@ function pickActiveCircle(){
   if(saved && circles[saved]) return saved;
   return myCircles[0] ? myCircles[0].id : null;
 }
-// If the URL is an invite link (#join-<circleId>), offer to join that circle.
+// If the URL is an invite link (#join-<circleId>), send a join REQUEST —
+// this only grants membership once the circle's moderator (or the admin)
+// approves it from the home screen; it doesn't add them right away.
 async function maybeHandleJoinLink(){
   const m=location.hash.match(/^#join-(.+)$/);
   if(!m) return;
   const circleId=m[1];
   history.replaceState(null, '', location.pathname+location.search);
-  if(circles[circleId]){ activeCircleId=circleId; persistActiveCircle(); return; } // already a member
+  if(circles[circleId]){ activeCircleId=circleId; persistActiveCircle(); return; } // already an approved member
   try{
     const cSnap=await db.doc('circles/'+circleId).get();
     if(!cSnap.exists()){ toast('Deze uitnodigingslink is niet (meer) geldig'); return; }
     const name=(cSnap.data()||{}).name || 'deze cirkel';
-    if(!confirm('Wil je lid worden van de cirkel "'+name+'"?')) return;
-    await db.doc('circles/'+circleId).collection('members').doc(uid).set({email:myEmail, joinedAt:iso()});
-    const profRef=db.doc('data/users/'+uid+'/profile');
-    const profSnap=await profRef.get();
-    const existingIds=(profSnap.exists() && profSnap.data().circles) || [];
-    if(!existingIds.includes(circleId)){
-      await profRef.set({circles:existingIds.concat([circleId])}, {merge:true});
-    }
-    circles[circleId]=cSnap.data();
-    myCircles.push({id:circleId, name});
-    activeCircleId=circleId;
-    persistActiveCircle();
-    toast('Je bent lid geworden van "'+name+'"');
+    if(!confirm('Wil je een verzoek sturen om lid te worden van de cirkel "'+name+'"?')) return;
+    await db.doc('circles/'+circleId).collection('requests').doc(uid).set({uid, email:myEmail, requestedAt:iso()});
+    toast('Verzoek verstuurd — je krijgt toegang zodra de moderator het goedkeurt');
   }catch(e){
-    toast('Lid worden mislukt — probeer het opnieuw');
+    toast('Verzoek versturen mislukt — probeer het opnieuw');
   }
 }
 function applyActiveCircleUI(){

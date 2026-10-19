@@ -32,7 +32,7 @@ img{max-width:100%}
   --font-mono:"Space Mono","SFMono-Regular",Menlo,monospace;
   --bg:#f6f4ec; --surface:#ffffff; --surface-2:#e9e5d4;
   --fg:#1c1f14; --fg-muted:#6a6b55;
-  --accent:#5c7a29; --accent-deep:#425a1b; --accent-ink:#ffffff; --accent-bg:#e6ecd6;
+  --accent:#5fae3b; --accent-deep:#457f2a; --accent-ink:#ffffff; --accent-bg:#e9f4de;
   --pop:#eab22e; --pop-ink:#2b2008;
   --line:#ddd8c2; --rail:#eab22e;
   --wrong:#e2583c; --wrong-bg:#fbe3dc;
@@ -211,11 +211,11 @@ button.chip{cursor:pointer}
 
 /* ---- form controls ---- */
 label{font-size:.78rem; font-weight:600; color:var(--fg-muted); display:block; margin-bottom:5px}
-input[type=text], select{
+input[type=text], input[type=search], select{
   width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--line);
   background:var(--surface); color:var(--fg); font-size:.95rem; font-family:inherit;
 }
-input[type=text]:focus, select:focus, button:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+input[type=text]:focus, input[type=search]:focus, select:focus, button:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
 .field{margin-bottom:14px}
 .seg{display:flex; border:1px solid var(--line); border-radius:10px; overflow:hidden}
 .seg button{flex:1; padding:10px 6px; background:var(--surface); border:none; font-size:.8rem; color:var(--fg-muted); cursor:pointer; border-right:1px solid var(--line)}
@@ -407,6 +407,13 @@ body.can-edit-circle .tab[data-view="add"]{display:flex}
           <span class="wordmark">VocabiTash</span> ✨
         </h1>
         <div class="sub muted" id="home-circle-label">jouw woordenlijsten</div>
+      </div>
+      <div id="pending-requests-panel" hidden style="margin-bottom:14px">
+        <h3 style="margin:0 0 8px; font-size:.95rem">🔔 Wachten op goedkeuring</h3>
+        <div id="pending-requests-list" style="display:flex; flex-direction:column; gap:8px"></div>
+      </div>
+      <div class="field" id="list-search-field" style="margin-bottom:12px" hidden>
+        <input type="search" id="list-search-input" placeholder="🔍 Zoek een lijst…" autocomplete="off">
       </div>
       <div class="subjectbar" id="subject-bar" hidden></div>
       <div class="stats" id="home-stats" hidden>

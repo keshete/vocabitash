@@ -25,16 +25,37 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
       allow update: if isAdmin() || (request.auth != null && resource.data.moderatorEmail == request.auth.token.email);
 
-      // Membership — proves who's in this circle. Anyone can add themselves
-      // (that's how joining an invite link works — no approval step), and
-      // can remove themselves; the admin or the circle's moderator can also
-      // remove someone.
+      // Membership — proves who's in this circle. Joining now goes through a
+      // request (below) that the moderator or admin approves, so a member
+      // doc is created either by the admin/moderator (approving someone
+      // else) or by someone adding themselves directly (e.g. the admin
+      // bootstrapping their own membership); anyone can remove themselves,
+      // and the admin or the circle's moderator can also remove someone.
       match /members/{memberUid} {
+        // The resource.data.uid branch (alongside the memberUid path check)
+        // is what lets the collectionGroup('members').where('uid','==',…)
+        // query in loadMyCircles() validate: Firestore can only allow a
+        // query when the rule's condition is provable from the query's own
+        // equality filter, and a filter on the "uid" field only lines up
+        // with a rule that also checks resource.data.uid.
         allow read: if isAdmin() || isCircleModerator(circleId) ||
+          (request.auth != null && request.auth.uid == memberUid) ||
+          (request.auth != null && resource.data.uid == request.auth.uid);
+        allow create: if isAdmin() || isCircleModerator(circleId) ||
           (request.auth != null && request.auth.uid == memberUid);
-        allow create: if request.auth != null && request.auth.uid == memberUid;
         allow delete: if isAdmin() || isCircleModerator(circleId) ||
           (request.auth != null && request.auth.uid == memberUid);
+      }
+
+      // Join requests — created by whoever wants in (via an invite link),
+      // only readable/removable by that circle's moderator or the admin
+      // (approving = create the member doc above, then delete the request;
+      // rejecting = just delete it), or by the requester themselves, so they
+      // can withdraw their own pending request.
+      match /requests/{requestUid} {
+        allow create: if request.auth != null && request.auth.uid == requestUid;
+        allow read, delete: if isAdmin() || isCircleModerator(circleId) ||
+          (request.auth != null && request.auth.uid == requestUid);
       }
     }
 

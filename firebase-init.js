@@ -18,7 +18,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   getFirestore, doc, setDoc, updateDoc, deleteDoc, getDoc, collection, addDoc, onSnapshot,
-  query, where, getDocs,
+  query, where, getDocs, collectionGroup,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -60,6 +60,10 @@ function wrapCollection(path) {
 const dbShim = {
   doc: (path) => wrapDoc(path),
   collection: (path) => wrapCollection(path),
+  // Finds documents across every circle's "members" subcollection at once
+  // (e.g. "which circles am I a member of?") — only queryable when filtered
+  // by a field the security rules themselves check (see firestore.rules).
+  collectionGroup: (name) => wrapQuery(collectionGroup(fs, name)),
 };
 
 // ---- sample shim: mirrors the Artifact `sample` capability's .json()/.limits() ----
