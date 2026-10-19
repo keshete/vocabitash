@@ -568,24 +568,6 @@ body.can-edit-circle .tab[data-view="add"]{display:flex}
         <p class="muted" id="circle-single-label" style="font-size:.9rem; margin:0" hidden></p>
       </div>
 
-      <div class="panel" id="admin-circles-panel" hidden>
-        <h3 style="margin-top:0">Cirkels beheren</h3>
-        <p class="muted" style="font-size:.82rem; margin-top:-8px">Jij bent de enige die cirkels kan aanmaken en moderators kan aanwijzen. Een moderator kan lijsten toevoegen/bewerken binnen hun eigen cirkel.</p>
-        <div id="admin-circles-list" style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px"></div>
-        <div class="field">
-          <label>Naam nieuwe cirkel</label>
-          <input type="text" id="new-circle-name" placeholder="Bijv. IG-1B of Klas 3C">
-        </div>
-        <div class="field" style="margin-bottom:0">
-          <label>E-mail van de moderator</label>
-          <input type="email" id="new-circle-moderator" placeholder="naam@gmail.com">
-        </div>
-        <button class="btn btn-primary btn-block" id="new-circle-btn" style="margin-top:14px">+ Cirkel aanmaken</button>
-        <p class="muted" id="admin-circles-status" style="font-size:.8rem; margin-top:8px"></p>
-        <button class="btn btn-ghost btn-block" id="migrate-legacy-btn" style="margin-top:14px">Bestaande lijsten zonder cirkel toewijzen aan actieve cirkel</button>
-        <p class="muted" id="migrate-legacy-status" style="font-size:.8rem; margin-top:8px"></p>
-      </div>
-
       <div class="panel">
         <h3 style="margin-top:0">Welke lijsten</h3>
         <p class="muted" style="font-size:.82rem; margin-top:-8px">Kies hier de lijsten waarop een actie hieronder van toepassing is.</p>
@@ -624,6 +606,30 @@ body.can-edit-circle .tab[data-view="add"]{display:flex}
         </div>
         <button class="btn btn-primary btn-block" id="export-btn" style="margin-top:14px">Exporteren…</button>
         <p class="muted" id="export-status" style="font-size:.8rem; margin-top:8px"></p>
+      </div>
+
+      <div id="admin-settings-sep" hidden style="display:flex; align-items:center; gap:10px; margin:26px 0 6px">
+        <div style="flex:1; height:1px; background:var(--line)"></div>
+        <span class="muted" style="font-size:.72rem; letter-spacing:.04em; text-transform:uppercase">Moderator / beheer</span>
+        <div style="flex:1; height:1px; background:var(--line)"></div>
+      </div>
+
+      <div class="panel" id="admin-circles-panel" hidden>
+        <h3 style="margin-top:0">Cirkels beheren</h3>
+        <p class="muted" style="font-size:.82rem; margin-top:-8px">Jij bent de enige die cirkels kan aanmaken en moderators kan aanwijzen. Een moderator kan lijsten toevoegen/bewerken binnen hun eigen cirkel.</p>
+        <div id="admin-circles-list" style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px"></div>
+        <div class="field">
+          <label>Naam nieuwe cirkel</label>
+          <input type="text" id="new-circle-name" placeholder="Bijv. IG-1B of Klas 3C">
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>E-mail van de moderator</label>
+          <input type="email" id="new-circle-moderator" placeholder="naam@gmail.com">
+        </div>
+        <button class="btn btn-primary btn-block" id="new-circle-btn" style="margin-top:14px">+ Cirkel aanmaken</button>
+        <p class="muted" id="admin-circles-status" style="font-size:.8rem; margin-top:8px"></p>
+        <button class="btn btn-ghost btn-block" id="migrate-legacy-btn" style="margin-top:14px">Bestaande lijsten zonder cirkel toewijzen aan actieve cirkel</button>
+        <p class="muted" id="migrate-legacy-status" style="font-size:.8rem; margin-top:8px"></p>
       </div>
 
     </section>

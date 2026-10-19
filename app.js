@@ -1898,6 +1898,7 @@ function applyActiveCircleUI(){
 function renderAdminCirclesList(){
   const panel=$('#admin-circles-panel');
   panel.hidden=!isAdmin;
+  $('#admin-settings-sep').hidden=!isAdmin;
   if(!isAdmin) return;
   const list=$('#admin-circles-list');
   const ids=Object.keys(circles);
